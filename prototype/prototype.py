@@ -1,5 +1,6 @@
 import discord
 import airdrop
+import private
 
 client = discord.Client()
 
@@ -14,9 +15,13 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    if client.user == message.author:
+        return
     if message.content.startswith(","):
-        if client.user != message.author:
-            print("channel name={0} id={1}".format(message.channel, message.channel.id))
+        print("channel name={0} id={1} type={2}".format(message.channel, message.channel.id, message.channel.type))
+        if message.channel.type == discord.ChannelType.private :
+            await private.on_message_inner(client, message)
+        else :
             if message.channel.id == '450680470649176065':    # testchannel
                 await airdrop.on_message_inner(client, message)
 

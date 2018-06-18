@@ -44,6 +44,7 @@ async def on_message_inner(client, message):
         if (not accept):
             await client.send_message(message.channel, "{0}様、大変申し上げにくいのですがアドレスが不正ではございませんか・・？".format(user))
     else:
+        user = str(message.author)
         await client.send_message(message.channel, "{0}様、コマンドがあっておりますか・・？".format(user))
 
 def _create_tabel():
