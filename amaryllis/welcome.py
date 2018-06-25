@@ -1,4 +1,5 @@
 import discord
+import asyncio
 import random
 
 msg_welcome=[
@@ -13,16 +14,19 @@ msg_remove=[
 
 
 async def on_ready_inner():
-    # print('welcome start')
+    pass
+    return
 
-async def on_member_join_inner(client, member, channel):
-    await client.send_message(channel, random.choice(msg_remove).format(member))
+async def on_member_join_inner(client, member, channel_id):
+    chObj = client.get_channel(channel_id)
+    await client.send_message(chObj, random.choice(msg_remove).format(member))
 
-async def on_member_remove_inner(client, member, channel):
+async def on_member_remove_inner(client, member, channel_id):
+    chObj = client.get_channel(channel_id)
     await client.send_message(channel, random.choice(msg_remove).format(member))
 
 async def on_message_inner(client, message):
-    # pass
+    pass
     return
 
 
