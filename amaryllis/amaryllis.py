@@ -76,8 +76,6 @@ async def on_message(message):
                 await testnet.on_message_inner(client, message)
             elif message.channel.id == CH_ID_AIRDROP:    # airdrop
                 await airdrop.on_message_inner(client, message)
-            elif message.channel.id == CH_ID_WELCOME:    # welcome
-                await welcome.on_message_inner(client, message)
 
 if __name__ == '__main__':
     client.run(TOKEN)
