@@ -18,7 +18,6 @@ def on_ready():
     return
 
 async def on_member_join_inner(client, member, channel_id):
-    username = member
     chObj = client.get_channel(channel_id)
     await client.send_message(chObj, random.choice(msg_welcome).format(member.mention))
 
