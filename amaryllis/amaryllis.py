@@ -1,23 +1,23 @@
 import discord
 import testnet
 import airdrop
-# import private
+import private
 import welcome
 
 client = discord.Client()
 
 # server
-# TOKEN="SERVER_ID"
-# CH_ID_TESTNET='450680522327195658'
-# CH_ID_AIRDROP='452338707173998612'
-# CH_ID_WELCOME='451762997644230656'
+TOKEN="SERVER_ID"
+CH_ID_TESTNET='450680522327195658'
+CH_ID_AIRDROP='452338707173998612'
+CH_ID_WELCOME='451762997644230656'
 
 # testserver
-TOKEN="NDQ5OTcwNzI0Mzc2MDE4OTY1.DexILw.gzYjSTJPCxZTuBFz8On8pOxtGlQ"
-CH_ID_TESTNET='457940540189835264'
-CH_ID_AIRDROP='457940497063870464'
-CH_ID_WELCOME='455754856427290624'
-CH_ID_CHATBOT='461194342837780490'
+# TOKEN="SERVER_ID"
+# CH_ID_TESTNET='457940540189835264'
+# CH_ID_AIRDROP='457940497063870464'
+# CH_ID_WELCOME='455754856427290624'
+# CH_ID_CHATBOT='461194342837780490'
 
 
 # ,gettoken error message
@@ -61,7 +61,7 @@ async def on_message(message):
     if message.content.startswith(","):
         print("channel name={0} id={1}".format(message.channel, message.channel.id))
         if message.channel.type == discord.ChannelType.private :
-            # await private.on_message_inner(client, message)
+            await private.on_message_inner(client, message)
             pass
         else :
             # Provisional imp >>
