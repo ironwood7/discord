@@ -42,14 +42,10 @@ async def on_ready():
 #################
 @client.event
 async def on_member_join(member):
-    if client.user == message.author:
-        return
     await welcome.on_member_join_inner(client, member, CH_ID_WELCOME) # welcome
 
 @client.event
 async def on_member_remove(member):
-    if client.user == message.author:
-        return
     await welcome.on_member_remove_inner(client, member, CH_ID_WELCOME) # welcome
 
 
