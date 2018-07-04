@@ -27,6 +27,7 @@ async def on_message_inner(client, message):
         await _cmd_withdraw(client, message)
         await _cmd_balance(client, message)
         await _cmd_tip(client, message)
+        await _cmd_rain(client, message)
 
 
 # @breif ,register ウォレットを作成します。
@@ -225,7 +226,7 @@ async def _cmd_tip(client, message):
     if message.content.startswith(",tip"):
         # 引数からdstaddressを取得する。
         # ユーザからsrcaddressを取得する。
-        print("withdraw {0}:{1}".format(message.author, message.content))
+        print("tip {0}:{1}".format(message.author, message.content))
         params = message.content.split()
         user = str(message.author)
         to_user = ""
@@ -250,6 +251,7 @@ async def _cmd_tip(client, message):
         if amount > TIP_AMOUNT_MAX:
             await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが上限を超えています。".format(user, amount))
             return
+        # ----------------------------
         # まず自分のアドレス
         with closing(sqlite3.connect(DBNAME)) as connection:
             cursor = connection.cursor()
@@ -260,6 +262,7 @@ async def _cmd_tip(client, message):
             else:
                 await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user))
                 return
+        # ----------------------------
         # 相手のアドレス
         with closing(sqlite3.connect(DBNAME)) as connection:
             cursor = connection.cursor()
@@ -277,16 +280,95 @@ async def _cmd_tip(client, message):
         await client.send_message(message.channel, "{0}様、{1}, {2}, {3}で送金致しました。".format(user,src_addr,dst_addr,amount))
     pass
 
-# @breif ,rain (amount) present
+# @breif ,rain (amount) とりあえずxselを1-10
 # @return  user - seln address list
 async def _cmd_rain(client, message):
-    # TODO オフラインではない人で、挿入金額が5XSELの人にXSELを均等にプレゼント。
-
+    RAIN_AMOUNT_MAX = 10
+    # ----------------------------
     # -- 暫定仕様 --
-    # 実装としてはdbのユーザからオンラインリストを作成
-    # オンラインリストから条件合致したものをフィルタ
-    # 確定したリストに対して送信
-    pass
+    # ------------------------
+    # オフラインではない人で、XSELを均等にプレゼント。
+    if message.content.startswith(",rain"):
+        # 引数からdstaddressを取得する。
+        # ユーザからsrcaddressを取得する。
+        print("tip {0}:{1}".format(message.author, message.content))
+        params = message.content.split()
+        user = str(message.author)
+        src_addr = ""
+
+        if (len(params) != 2):
+            await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user))
+            return
+        if False == params[1].isdigit():
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user, params[1]))
+            return
+        amount = 0
+        try:
+            amount  = int(params[1])
+        except:
+            # exceptionで戻る
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user, amount))
+            return
+
+        # amount制限
+        if (1 > amount):
+            await client.send_message(message.channel, "{0}様、amountのパラメータが下限を超えています。amount:{1}".format(user, amount))
+            return
+        if (amount > RAIN_AMOUNT_MAX):
+            await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1}".format(user, amount))
+            return
+        # ----------------------------
+        # まず自分のアドレス
+        with closing(sqlite3.connect(DBNAME)) as connection:
+            cursor = connection.cursor()
+            row = _get_user_row(cursor, user)
+            if row is not None:
+                # src アドレス取得
+                src_addr = str(row[1])
+            else:
+                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user))
+                return
+        # ----------------------------
+        # オンラインリストから条件合致したものをフィルタ
+        # onlineユーザを取得
+        online_users = []
+        members = client.get_all_members()
+        for member in members:
+            if (discord.Status.online == member.status) and (False == member.bot):
+                online_users.append(str(member))
+        # print(online_users)
+        # ------------------------
+        # online_usersからdbのリストを取得
+
+        # まず自分のアドレス
+        # ちょっと効率悪いけど気にしない
+        dst_user_addrs=[]
+        for dst_user in online_users:
+            with closing(sqlite3.connect(DBNAME)) as connection:
+                cursor = connection.cursor()
+                row = _get_user_row(cursor, dst_user)
+                if row is not None:
+                    # 取得したタプルペアをそのままリストに突っ込む
+                    dst_user_addrs.append(row)
+
+        # 確定したリストに対して送信
+        for row in dst_user_addrs:
+            # これで
+            dst_user = row[0]
+            dst_addr = row[1]
+            ################################
+            # TODO ここでRPCにて残高確認する
+            ################################
+
+            ################################
+            # TODO ここでRPCにて送金依頼
+            ################################
+            # if (user != dst_user)
+            # src_addr,dst_addr,amount
+            print(row[0], row[1])
+            await client.send_message(message.channel, "{0}様、{1}, {2}, {3}で送金致しました。".format(user,src_addr,dst_addr,amount))
+    return
+
 
 ##########################################
 # Utility
