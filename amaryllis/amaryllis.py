@@ -1,10 +1,12 @@
+#!/usr/bin/python3
+
 import discord
-import testnet
-import airdrop
 import private
 import welcome
 import myserver
 import wallet
+import sys
+import os
 
 client = discord.Client()
 
@@ -22,7 +24,6 @@ async def on_ready():
     print(client.user.id)
     print('------')
 
-    airdrop.on_ready()
     welcome.on_ready()
     wallet.on_ready()
 
@@ -55,23 +56,31 @@ async def on_message(message):
                 await client.send_message(message.channel, CMD_ERROR_GETTOKEN)
                 return
             # << Provisional imp
-            # testnet
-            if message.channel.id == myserver.CH_ID_TESTNET: await testnet.on_message_inner(client, message)
-            # airdrop
-            elif message.channel.id == myserver.CH_ID_AIRDROP: await airdrop.on_message_inner(client, message)
             # wallet
-            elif message.channel.id == myserver.CH_ID_REGISTER: await wallet.on_message_inner(client, message)
+            elif message.channel.id == myserver.CH_ID_REGISTER:
+                await wallet.on_message_inner(client, message)
             # address
-            elif message.channel.id == myserver.CH_ID_ADDRESS: await wallet.on_message_inner(client, message)
+            elif message.channel.id == myserver.CH_ID_ADDRESS:
+                await wallet.on_message_inner(client, message)
             # wallet
-            elif message.channel.id == myserver.CH_ID_WALLET: await wallet.on_message_inner(client, message)
+            elif message.channel.id == myserver.CH_ID_WALLET:
+                await wallet.on_message_inner(client, message)
             else:
                 pass
 
         return
 
+def daemonize():
+    pid = os.fork()
+    if pid > 0:
+        pid_file = open('./amaryllis_daemon.pid','w')
+        pid_file.write(str(pid)+"\n")
+        pid_file.close()
+        sys.exit()
+    if pid == 0:
+        client.run(myserver.TOKEN)
 
 if __name__ == '__main__':
-    client.run(myserver.TOKEN)
-    pass
+    while True:
+        daemonize()
 
