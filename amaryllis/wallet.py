@@ -4,6 +4,9 @@ import myserver
 from contextlib import closing
 
 cmd_admin_str="ironwood#7205"
+WITHDRAW_AMOUNT_MAX = 10
+TIP_AMOUNT_MAX      = 4
+RAIN_AMOUNT_MAX     = 1
 
 # 登録データ
 DBNAME = 'database_register.db'
@@ -62,8 +65,12 @@ async def _cmd_register(client, message):
                 return
 
         # DB上にユーザがいないことが判明
+        ##############################
         # TODO ユーザ登録が無いのでここでselnアドレスを取得しに行く -> RPC
+        ##############################
         address = _get_regist_address(user)
+
+        ##############################
 
         with closing(sqlite3.connect(DBNAME)) as connection:
             cursor = connection.cursor()
@@ -86,7 +93,7 @@ async def _cmd_register(client, message):
                 await client.send_message(message.channel, "{0}さま！大変です！し、し、しっぱいいたしました！！！".format(user))
         if accept:
             await client.send_message(message.channel, "{0}様のaddressは、{1} となります。".format(user, address))
-        return
+    return
 
 # @breif ,dump デバッグコマンド。
 # @return  user - seln address list
@@ -105,14 +112,18 @@ async def _cmd_dump(client, message):
 # @return xsel Value
 async def _cmd_info(client, message):
     if message.content.startswith(",info"):
+        ################################
         # TODO 現在のXSELの価格を表示します。selndに問い合わせ？
+        ################################
         value = "0.0000000"
         await client.send_message(message.channel, "{0}".format(value))
+        ################################
+    return
 
 # @breif ,address command : wallet address
 # @return  seln address
 async def _cmd_address(client, message):
-    # TODO selnのアドレスを取得します
+    # selnのアドレスを取得します
     if message.content.startswith(",address"):
         print("address {0}:{1}".format(message.author, message.content))
         params = message.content.split()
@@ -120,7 +131,7 @@ async def _cmd_address(client, message):
         if (len(params) >= 2):
             await client.send_message(message.channel, "{0}様、申し訳ございません。いらない引数があります。".format(user))
             return
-        # TODO 現在のXSELの価格を表示します。
+        # user でDBからaddr取得
         with closing(sqlite3.connect(DBNAME)) as connection:
             cursor = connection.cursor()
             row = _get_user_row(cursor, user)
@@ -129,12 +140,13 @@ async def _cmd_address(client, message):
                 await client.send_message(message.channel, str(row[1]))
             else:
                 await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user))
+    return
 
 
 # @breif ,balance : wallet balance
 # @return wallet balance
 async def _cmd_balance(client, message):
-    # TODO ウォレットの残高を確認します。
+    # ウォレットの残高を確認します。
     if message.content.startswith(",balance"):
         # userからaddressを取得する。
         print("withdraw {0}:{1}".format(message.author, message.content))
@@ -168,8 +180,7 @@ async def _cmd_balance(client, message):
 # @breif ,withdraw (addr) (amount) : withdraw
 # @return  user - seln address list
 async def _cmd_withdraw(client, message):
-    WITHDRAW_AMOUNT_MAX = 1000
-    # TODO 「addr」に対して、「amount」XSELを送金します。
+    # 「addr」に対して、「amount」XSELを送金します。
     if message.content.startswith(",withdraw"):
         # 引数からdstaddressを取得する。
         # ユーザからsrcaddressを取得する。
@@ -220,8 +231,7 @@ async def _cmd_withdraw(client, message):
 # @breif ,tip (to) (amount) : tips (default 1xsel)
 # @return wallet balance
 async def _cmd_tip(client, message):
-    TIP_AMOUNT_MAX = 400
-    # TODO 「to」に対して、「amount」XSELを渡します。 toには、discordの名前を指定してください。
+    # 「to」に対して、「amount」XSELを渡します。 toには、discordの名前を指定してください。
     # 例：,tip seln#xxxx 3
     if message.content.startswith(",tip"):
         # 引数からdstaddressを取得する。
@@ -278,12 +288,12 @@ async def _cmd_tip(client, message):
         ################################
         # src_addr,dst_addr,amount
         await client.send_message(message.channel, "{0}様、{1}, {2}, {3}で送金致しました。".format(user,src_addr,dst_addr,amount))
-    pass
+        ################################
+    return
 
 # @breif ,rain (amount) とりあえずxselを1-10
 # @return  user - seln address list
 async def _cmd_rain(client, message):
-    RAIN_AMOUNT_MAX = 10
     # ----------------------------
     # -- 暫定仕様 --
     # ------------------------
