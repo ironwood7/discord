@@ -78,7 +78,13 @@ def daemonize():
         pid_file.close()
         sys.exit()
     if pid == 0:
-        client.run(myserver.TOKEN)
+        try:
+            client.run(myserver.TOKEN)
+        except:
+            pass
+        finally:
+            print("client stop")
+
 
 if __name__ == '__main__':
     while True:

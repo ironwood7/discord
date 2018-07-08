@@ -2,6 +2,8 @@ import discord
 import sqlite3
 import myserver
 from contextlib import closing
+from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
+
 
 cmd_admin_str="ironwood#7205"
 WITHDRAW_AMOUNT_MAX = 10
@@ -12,6 +14,7 @@ RAIN_AMOUNT_MAX     = 1
 DBNAME = 'database_register.db'
 REG_TABLENAME= 'register'
 MAX_RECORD = 10000000
+
 
 def on_ready():
     _create_table()
@@ -31,7 +34,9 @@ async def on_message_inner(client, message):
         await _cmd_balance(client, message)
         await _cmd_tip(client, message)
         await _cmd_rain(client, message)
-
+    
+    await _cmd_dbg_info(client, message)
+    return
 
 # @breif ,register ウォレットを作成します。
 # @return seln address
@@ -41,9 +46,10 @@ async def _cmd_register(client, message):
         print("register {0}:{1}".format(message.author, message.content))
         params = message.content.split()
         user = str(message.author)
+        user_mention = message.author.mention
 
         if (len(params) >= 2):
-            await client.send_message(message.channel, "{0}様、申し訳ございません。いらない引数があります。".format(user))
+            await client.send_message(message.channel, "{0}様、申し訳ございません。いらない引数があります。".format(user_mention))
             return
 
         accept = False
@@ -57,11 +63,11 @@ async def _cmd_register(client, message):
             # むしろwait必要？
             if _is_exists_user(cursor, user):
                 # すでにユーザが存在する
-                await client.send_message(message.channel, "{0}様、もう登録されておりますよ。".format(user))
+                await client.send_message(message.channel, "{0}様、もう登録されておりますよ。".format(user_mention))
                 return
 
             if count[0] > MAX_RECORD:
-                await client.send_message(message.channel, "{0}様、もう業務時間終了致しました。".format(user))
+                await client.send_message(message.channel, "{0}様、もう業務時間終了致しました。".format(user_mention))
                 return
 
         # DB上にユーザがいないことが判明
@@ -83,16 +89,23 @@ async def _cmd_register(client, message):
 
             if _is_exists_record(cursor, user, address):
                 if not update:
-                    await client.send_message(message.channel, "{0}様、お受付いたしました".format(user))
+                    await client.send_message(message.channel, "{0}様、お受付いたしました".format(user_mention))
                 else:
-                    await client.send_message(message.channel, "{0}様、前のアドレスを喪失してしまいました。".format(user))
+                    await client.send_message(message.channel, "{0}様、前のアドレスを喪失してしまいました。".format(user_mention))
                 # OK
                 accept = True
             else:
                 # NG
-                await client.send_message(message.channel, "{0}さま！大変です！し、し、しっぱいいたしました！！！".format(user))
+                await client.send_message(message.channel, "{0}さま！大変です！し、し、しっぱいいたしました！！！".format(user_mention))
         if accept:
-            await client.send_message(message.channel, "{0}様のaddressは、{1} となります。".format(user, address))
+            ################################
+            rg_user  = "**所有者**\r\n{0} 様  \r\n".format(user)
+            rg_src   = "**アドレス**\r\n{0}   \r\n".format(address)
+            disp_msg = rg_user +rg_src
+            await _disp_rep_msg( client, message,'登録情報','',disp_msg )
+            ################################
+
+
     return
 
 # @breif ,dump デバッグコマンド。
@@ -113,10 +126,15 @@ async def _cmd_dump(client, message):
 async def _cmd_info(client, message):
     if message.content.startswith(",info"):
         ################################
-        # TODO 現在のXSELの価格を表示します。selndに問い合わせ？
+        # TODO 現在のXSELの価格を表示します。selndに問い合わせ
         ################################
+
         value = "0.0000000"
-        await client.send_message(message.channel, "{0}".format(value))
+        ################################
+        ad_user = "**価格**\r\n{0}   \r\n".format(value)
+        # 見づらいので分解(遅くなるけど無視)
+        disp_msg = ad_user
+        await _disp_rep_msg( client, message,'XSELの価格','',disp_msg )
         ################################
     return
 
@@ -126,20 +144,33 @@ async def _cmd_address(client, message):
     # selnのアドレスを取得します
     if message.content.startswith(",address"):
         print("address {0}:{1}".format(message.author, message.content))
-        params = message.content.split()
-        user = str(message.author)
+        params       = message.content.split()
+        user         = str(message.author)
+        user_mention = message.author.mention
+
         if (len(params) >= 2):
-            await client.send_message(message.channel, "{0}様、申し訳ございません。いらない引数があります。".format(user))
+            await client.send_message(message.channel, "{0}様、申し訳ございません。いらない引数があります。".format(user_mention))
             return
         # user でDBからaddr取得
+
+        src_addr = None
         with closing(sqlite3.connect(DBNAME)) as connection:
             cursor = connection.cursor()
             row = _get_user_row(cursor, user)
             # print(row)
             if row is not None:
-                await client.send_message(message.channel, str(row[1]))
+                src_addr = str(row[1])
             else:
-                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user))
+                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
+                return
+
+        ################################
+        ad_user = "**所有者**\r\n{0} 様  \r\n".format(user)
+        ad_src  = "**アドレス**\r\n{0}     \r\n".format(src_addr)
+        # 見づらいので分解(遅くなるけど無視)
+        disp_msg = ad_user +ad_src
+        await _disp_rep_msg( client, message,'登録情報','',disp_msg )
+        ################################
     return
 
 
@@ -150,11 +181,13 @@ async def _cmd_balance(client, message):
     if message.content.startswith(",balance"):
         # userからaddressを取得する。
         print("withdraw {0}:{1}".format(message.author, message.content))
-        params = message.content.split()
-        user = str(message.author)
+        params       = message.content.split()
+        user         = str(message.author)
+        user_mention = message.author.mention
+
         src_addr = ""
         if (len(params) > 1):
-            await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが余計です。".format(user))
+            await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが余計です。".format(user_mention))
             return
 
         with closing(sqlite3.connect(DBNAME)) as connection:
@@ -164,15 +197,24 @@ async def _cmd_balance(client, message):
                 # src アドレス取得
                 src_addr = str(row[1])
             else:
-                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user))
+                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
                 return
 
         ################################
         # TODO このアドレス:src_addrにてRPC経由で財布を確認
         ################################
+        # getaccount src_addr
+        # getbalance [account] [minconf=1]
+        # 見づらいので分解(遅くなるけど無視)
+        bl_user     = "**所有者**\r\n{0} 様  \r\n".format(user)
+        bl_result   = "**残高**\r\n{0} XSEL  \r\n".format(400.10012190)
+        bl_veri_end = "**検証済**\r\n{0} XSEL\r\n".format(400.10012190)
+        bl_veri_dur = "**検証中**\r\n{0} XSEL\r\n".format(0.000000)
+        bl_veri_non = "**未検証**\r\n{0} XSEL\r\n".format(0.000000)
 
-        await client.send_message(message.channel, "{0}様、address{1}".format(user, src_addr))
-        await client.send_message(message.channel, "***残高:{0}***".format(400))
+        disp_msg = bl_user +bl_result +bl_veri_end +bl_veri_dur +bl_veri_non
+
+        await _disp_rep_msg( client, message,'残高(BALANCE)','検証分のみ表示されます。',disp_msg )
         ################################
     return
 
@@ -190,10 +232,10 @@ async def _cmd_withdraw(client, message):
         src_addr = ""
         dst_addr = ""
         if (len(params) != 3):
-            await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user))
+            await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user_mention))
             return
         if False == params[2].isdigit():
-            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user, params[2]))
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, params[2]))
             return
         amount = 0
         try:
@@ -201,12 +243,12 @@ async def _cmd_withdraw(client, message):
             amount   = int(params[2])
         except:
             # exceptionで戻る
-            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user, amount))
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, amount))
             return
 
         # amount制限
         if amount > WITHDRAW_AMOUNT_MAX:
-            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが上限を超えています。".format(user, amount))
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが上限を超えています。".format(user_mention, amount))
             return
 
         with closing(sqlite3.connect(DBNAME)) as connection:
@@ -216,15 +258,22 @@ async def _cmd_withdraw(client, message):
                 # src アドレス取得
                 src_addr = str(row[1])
             else:
-                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user))
+                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
                 return
 
         ################################
         # TODO ここでRPCにて送金依頼
         ################################
-
         # src_addr,dst_addr,amount
-        await client.send_message(message.channel, "{0}様、{1}, {2}, {3}で送金致しました。".format(user,src_addr,dst_addr,amount))
+
+        ################################
+        wd_user = "**所有者**\r\n{0} 様  \r\n".format(user)
+        wd_src  = "**送信元**\r\n{0}     \r\n".format(src_addr)
+        wd_dst  = "**送信先**\r\n{0}     \r\n".format(dst_addr)
+        wd_am   = "**送金額**\r\n{0} XSEL\r\n".format(amount)
+        # 見づらいので分解(遅くなるけど無視)
+        disp_msg = wd_user +wd_src +wd_dst +wd_am
+        await _disp_rep_msg( client, message,'送金(withdraw)','以下のように送金しました。',disp_msg )
         ################################
     return
 
@@ -237,16 +286,19 @@ async def _cmd_tip(client, message):
         # 引数からdstaddressを取得する。
         # ユーザからsrcaddressを取得する。
         print("tip {0}:{1}".format(message.author, message.content))
-        params = message.content.split()
-        user = str(message.author)
+        params       = message.content.split()
+        user         = str(message.author)
+        user_mention = message.author.mention
+
+
         to_user = ""
         src_addr = ""
         dst_addr = ""
         if (len(params) != 3):
-            await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user))
+            await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user_mention))
             return
         if False == params[2].isdigit():
-            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user, params[2]))
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, params[2]))
             return
         amount = 0
         try:
@@ -254,12 +306,12 @@ async def _cmd_tip(client, message):
             amount  = int(params[2])
         except:
             # exceptionで戻る
-            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user, amount))
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, amount))
             return
 
         # amount制限
         if amount > TIP_AMOUNT_MAX:
-            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが上限を超えています。".format(user, amount))
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが上限を超えています。".format(user_mention, amount))
             return
         # ----------------------------
         # まず自分のアドレス
@@ -270,7 +322,7 @@ async def _cmd_tip(client, message):
                 # src アドレス取得
                 src_addr = str(row[1])
             else:
-                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user))
+                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
                 return
         # ----------------------------
         # 相手のアドレス
@@ -281,13 +333,21 @@ async def _cmd_tip(client, message):
                 # src アドレス取得
                 dst_addr = str(row[1])
             else:
-                await client.send_message(message.channel, "{0}様、TO:{0}様のアドレスは登録されていないようです。".format(to_user))
+                await client.send_message(message.channel, "{0}様、TO:{1}様のアドレスは登録されていないようです。".format(user_mention, to_user))
                 return
         ################################
         # TODO ここでRPCにて送金依頼
         ################################
         # src_addr,dst_addr,amount
-        await client.send_message(message.channel, "{0}様、{1}, {2}, {3}で送金致しました。".format(user,src_addr,dst_addr,amount))
+
+        ################################
+        tip_user = "**所有者**\r\n{0} 様  \r\n".format(user)
+        tip_src  = "**送信元**\r\n{0}     \r\n".format(src_addr)
+        tip_dst  = "**送信先**\r\n{0}     \r\n".format(dst_addr)
+        tip_am   = "**送金額**\r\n{0} XSEL\r\n".format(amount)
+        # 見づらいので分解(遅くなるけど無視)
+        disp_msg = tip_user +tip_src +tip_dst +tip_am
+        await _disp_rep_msg( client, message,'送金(tip)','以下のように送金しました。',disp_msg )
         ################################
     return
 
@@ -302,30 +362,31 @@ async def _cmd_rain(client, message):
         # 引数からdstaddressを取得する。
         # ユーザからsrcaddressを取得する。
         print("tip {0}:{1}".format(message.author, message.content))
-        params = message.content.split()
-        user = str(message.author)
+        params       = message.content.split()
+        user         = str(message.author)
+        user_mention = message.author.mention
         src_addr = ""
 
         if (len(params) != 2):
-            await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user))
+            await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user_mention))
             return
         if False == params[1].isdigit():
-            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user, params[1]))
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, params[1]))
             return
         amount = 0
         try:
             amount  = int(params[1])
         except:
             # exceptionで戻る
-            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user, amount))
+            await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, amount))
             return
 
         # amount制限
         if (1 > amount):
-            await client.send_message(message.channel, "{0}様、amountのパラメータが下限を超えています。amount:{1}".format(user, amount))
+            await client.send_message(message.channel, "{0}様、amountのパラメータが下限を超えています。amount:{1} < 1".format(user_mention, amount))
             return
         if (amount > RAIN_AMOUNT_MAX):
-            await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1}".format(user, amount))
+            await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1} > {2}".format(user_mention, amount, RAIN_AMOUNT_MAX))
             return
         # ----------------------------
         # まず自分のアドレス
@@ -336,7 +397,7 @@ async def _cmd_rain(client, message):
                 # src アドレス取得
                 src_addr = str(row[1])
             else:
-                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user))
+                await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
                 return
         # ----------------------------
         # オンラインリストから条件合致したものをフィルタ
@@ -362,6 +423,7 @@ async def _cmd_rain(client, message):
                     dst_user_addrs.append(row)
 
         # 確定したリストに対して送信
+        sent_count = 0
         for row in dst_user_addrs:
             # これで
             dst_user = row[0]
@@ -376,7 +438,19 @@ async def _cmd_rain(client, message):
             # if (user != dst_user)
             # src_addr,dst_addr,amount
             print(row[0], row[1])
-            await client.send_message(message.channel, "{0}様、{1}, {2}, {3}で送金致しました。".format(user,src_addr,dst_addr,amount))
+            sent_count += 1
+            # await client.send_message(message.channel, "{0}様、{1}, {2}, {3}で送金致しました。".format(user,src_addr,dst_addr,amount))
+
+        ################################
+        ra_user = "**所有者**\r\n{0} 様  \r\n".format(user)
+        ra_src  = "**送信元**\r\n{0}     \r\n".format(src_addr)
+        ra_sent = "**送信数**\r\n{0}     \r\n".format(sent_count)
+        ra_am   = "**送金額**\r\n{0} XSEL\r\n".format(amount)
+        # 見づらいので分解(遅くなるけど無視)
+        disp_msg = ra_user +ra_src +ra_sent +ra_am
+        await _disp_rep_msg( client, message,'送金(tip)','以下のように送金しました。',disp_msg )
+        ################################
+
     return
 
 
@@ -448,15 +522,68 @@ def _dump_all(cursor):
     for row in cursor.execute("select * from " + REG_TABLENAME):
         print(row)
 
-
 # debug private msg print
 # async def _dump_all_private(client, message, cursor):
 #     for row in cursor.execute("select * from " + REG_TABLENAME):
 #         await client.send_message(message.author,str(row))
 
+##########################################
+# debug
+##########################################
+# ユーザ確認
+async def _cmd_dbg_info(client, message):
+    if message.content.startswith(",dbg"):
+
+        # send_ch = message.channel
+        send_ch = message.author
+
+        print("dbg {0}:{1}".format(send_ch, message.content))
+        params = message.content.split()
+        src_addr = ""
+        if (len(params) < 3):
+            await client.send_message(send_ch, "dbgコマンドが間違えている.")
+            return
+
+        # ,dbg members online
+        # ,dbg members all
+        if "members" == str(params[1]):
+            if "online" == str(params[2]):
+                members = client.get_all_members()
+                # onlineユーザ取得
+                online_users = list(filter(lambda x: (x.bot == False) and (x.status == discord.Status.online), members))
+                # Member obj->mapでmember名->list->str->send
+                await client.send_message(send_ch, str(list(map(str,online_users))))
+            elif "all" == str(params[2]):
+                members = client.get_all_members()
+                # allユーザ(botのみ除く)
+                all_users = list(filter(lambda x: x.bot == False, members))
+                # Member obj->mapでmember名->list->str->send
+                await client.send_message(send_ch, str(list(map(str,all_users))))
+
+##########################################
+# 表示
+##########################################
+# コマンドに対する応答
+async def _disp_rep_msg( client, message, disp_name, disp_title, disp_msg ):
+    # # 埋め込みメッセージ
+    msg = discord.Embed(title=disp_title, type="rich",description=disp_msg, colour=0x3498db)
+    # TODO iconが挿入されないので後で確認
+    msg.set_author(name=disp_name, icon_url=client.user.avatar_url)
+    txt_msg = await client.send_message(message.channel, embed=msg)
+    # await client.add_reaction(txt_msg,'👍')
+
+
+##########################################
+# RPC
+##########################################
 # RPCでアドレスを作成する依頼を出す。
 def _get_regist_address(user):
     # TODO ここでRPC経由でアドレスを取得する。
+
+    # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:8332"%(myserver.rpc_user, myserver.rpc_password))
+    # best_block_hash = rpc_connection.getbestblockhash()
+    # print(rpc_connection.getblock(best_block_hash))
+
     return "Sxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 
