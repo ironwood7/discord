@@ -25,7 +25,7 @@ async def on_member_join_inner(client, member, channel_id):
 
 async def on_member_remove_inner(client, member, channel_id):
     chObj = client.get_channel(channel_id)
-    await client.send_message(chObj, random.choice(msg_remove).format(member.mention))
+    await client.send_message(chObj, random.choice(msg_remove).format(member.name))
 
 
 
