@@ -36,12 +36,17 @@ from enum import Enum
 #
 # ,withdraw (addr)(amount)
 # 「addr」に対して、「amount」XSELを送金します。
+# -------------------------------------------------------
+#
+#
 #########################################################
 
-cmd_admin_str="ironwood#7205"
+cmd_admin_lst=["ironwood#7205"]
 # amount上限
-WITHDRAW_AMOUNT_MAX = 1000.0
-TIP_AMOUNT_MAX      = 1000.0
+WITHDRAW_AMOUNT_MAX = 1000000.0
+WITHDRAW_AMOUNT_MIN = 1.0
+TIP_AMOUNT_MAX      = 1000000.0
+TIP_AMOUNT_MIN      = 1.0
 RAIN_AMOUNT_MAX     = 10.0
 RAIN_AMOUNT_MIN     = 1.0
 RAIN_AMOUNT_TARGET_TH = 5.0
@@ -51,7 +56,7 @@ DBNAME = 'discordwallet.db'
 REG_TABLENAME= 'wallet'
 MAX_RECORD = 10000000
 
-# ダミーのアドレス(本当のアドレスはSから. tは仮となる)
+# ダミーのアドレス(本当のアドレスはSから. tは仮)
 INIT_ADDR_DUMMY='tXXXXXXXXXXXXXXXXXXXXXXXXXX'
 
 # command string
@@ -63,15 +68,14 @@ _CMD_STR_RAIN          = ",rain"
 _CMD_STR_INFO          = ",info"
 _CMD_STR_DEPOSIT       = ",deposit"
 _CMD_STR_WITHDRAW      = ",withdraw"
-
-# dbg
-_CMD_STR_DUMP          = ",dump"
-_CMD_STR_DBG_CMD       = ",dbg"
-_CMD_STR_TEST_REGISTER = ",testregister"
 # adminsend, adminself
 _CMD_STR_ADMIN_SEND    = ",adminsend"
 _CMD_STR_ADMIN_SELF    = ",adminself"
 _CMD_STR_ADMIN_BALANCE = ",adminbalance"
+# dbg
+_CMD_STR_DUMP          = ",dump"
+_CMD_STR_DBG_CMD       = ",dbg"
+_CMD_STR_TEST_REGISTER = ",testregister"
 
 class WalletInfo():
     def __init__(self, userid='', user_name='', address='', balance=0.0, pending=0.0):
@@ -125,8 +129,8 @@ async def on_message_inner(client, message):
 # コマンド
 # ----------------------------------------
 
-# @breif ,register ウォレットを作成します。:ユーザ登録するだけ
-# @return seln address
+# ,register
+# discord ウォレットを作成する。
 async def _cmd_register(client, message):
     if not message.content.startswith(_CMD_STR_REGISTER):
         return
@@ -171,7 +175,7 @@ async def _cmd_register(client, message):
     # 初期情報
     # 送信用にアドレス入れておく
     address = INIT_ADDR_DUMMY
-    balance = 1000.0
+    balance = 0.0
     pending = 0.0
     #################################
     with closing(sqlite3.connect(DBNAME)) as connection:
@@ -199,8 +203,7 @@ async def _cmd_register(client, message):
         ################################
     return
 
-# @breif ,dump デバッグコマンド。
-# @return  user - seln address list
+# ,dump デバッグコマンド。printするだけ
 async def _cmd_dump(client, message):
     if not message.content.startswith(_CMD_STR_DUMP):
         # なにもしない
@@ -208,7 +211,7 @@ async def _cmd_dump(client, message):
     dbg_print("{0} {1}:{2}".format(_CMD_STR_DUMP, message.author, message.content))
     user = str(message.author)
     # 特殊なユーザでない場合、反応しない
-    if (user != cmd_admin_str):
+    if not _is_admin_user(user):
         return
     with closing(sqlite3.connect(DBNAME)) as connection:
         cursor = connection.cursor()
@@ -216,8 +219,8 @@ async def _cmd_dump(client, message):
         # await _dump_all_private(client, message, cursor)
 
 
-# @breif ,address  : wallet Value
-# @return xsel Value
+# ,info
+# 現在のXSELの価格を表示します。
 async def _cmd_info(client, message):
     if not message.content.startswith(_CMD_STR_INFO):
         return
@@ -233,8 +236,8 @@ async def _cmd_info(client, message):
     ################################
     return
 
-# @breif ,address command : wallet address
-# @return  seln address
+# ,address
+# ウォレットアドレスを確認する。
 async def _cmd_address(client, message):
     if not message.content.startswith(_CMD_STR_ADDRESS):
         return
@@ -268,8 +271,8 @@ async def _cmd_address(client, message):
     return
 
 
-# @breif ,balance : wallet balance
-# @return wallet balance
+# ,balance
+# ウォレットの残高を確認する。
 async def _cmd_balance(client, message):
     # ウォレットの残高を確認します。
     if not message.content.startswith(_CMD_STR_BALANCE):
@@ -311,7 +314,10 @@ async def _cmd_balance(client, message):
     ################################
     return
 
-# @breif ,tip (to) (amount)
+# ,tip (to) (amount)
+# 「to」に対して、「amount」XSELを渡します。
+# toには、discordの名前を指定してください。
+# 例：,tip seln#xxxx 3
 async def _cmd_tip(client, message):
     if not message.content.startswith(_CMD_STR_TIP):
         return
@@ -341,6 +347,9 @@ async def _cmd_tip(client, message):
         return
 
     # amount制限
+    if (amount < TIP_AMOUNT_MIN):
+        await client.send_message(message.channel, "{0}様、amountのパラメータが下限を割っています。amount:{1} XSEL < {2} XSEL".format(user_mention, amount, TIP_AMOUNT_MIN))
+        return
     if amount > TIP_AMOUNT_MAX:
         await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1} XSEL > {2} XSEL".format(user_mention, amount, TIP_AMOUNT_MAX))
         return
@@ -402,8 +411,8 @@ async def _cmd_tip(client, message):
     ################################
     return
 
-# @breif ,rain (amount) : amountを対象に分配
-# @return  user - seln address list
+# ,rain (amount)
+# オフラインではない人で、挿入金額が5XSEL未満の人にXSELを均等にプレゼント。
 async def _cmd_rain(client, message):
     if not message.content.startswith(_CMD_STR_RAIN):
         return
@@ -431,7 +440,7 @@ async def _cmd_rain(client, message):
         return
     # amount制限
     if (amount < RAIN_AMOUNT_MIN):
-        await client.send_message(message.channel, "{0}様、amountのパラメータが下限を超えています。amount:{1} XSEL < {2} XSEL".format(user_mention, amount, RAIN_AMOUNT_MIN))
+        await client.send_message(message.channel, "{0}様、amountのパラメータが下限を割っています。amount:{1} XSEL < {2} XSEL".format(user_mention, amount, RAIN_AMOUNT_MIN))
         return
     if (amount > RAIN_AMOUNT_MAX):
         await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1} XSEL > {2} XSEL".format(user_mention, amount, RAIN_AMOUNT_MAX))
@@ -549,8 +558,9 @@ async def _cmd_rain(client, message):
 # 未対応、未実装        withdraw, info, deposit
 ####################################################################################
 
-# @breif ,withdraw (addr) (amount) : withdraw
-# @return  user - seln address list
+# ,deposit
+# ウォレットからdiscord walletに送金します。
+# ウォレットにXSELを入れるには、このアドレスに送金してください。
 async def _cmd_withdraw(client, message):
     # 「addr」に対して、「amount」XSELを送金します。
     if not message.content.startswith(_CMD_STR_WITHDRAW):
@@ -617,6 +627,8 @@ async def _cmd_withdraw(client, message):
     return
 
 
+# ,withdraw (addr)(amount)
+# 「addr」に対して、「amount」XSELを送金します。
 async def _cmd_deposit(client, message):
     if not message.content.startswith(_CMD_STR_DEPOSIT):
         return
@@ -625,6 +637,237 @@ async def _cmd_deposit(client, message):
     await _disp_rep_msg( client, message,'','すみません。未対応です。m(_ _)m',disp_msg )
     return
 
+##########################################
+# admin用
+# cmd_admin_lstに設定されているユーザしか実行できない。
+##########################################
+# testユーザ登録（一人)
+# ,testregister
+async def _cmd_test_register(client, message):
+    if not message.content.startswith(_CMD_STR_TEST_REGISTER):
+        return
+    # 送信用にアドレス入れておく
+    testuserid = '441218236227387407'
+    testuser   = 'seni#6719'
+    address    = INIT_ADDR_DUMMY
+    balance    = 0.0
+    pending    = 0.0
+
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        cursor = connection.cursor()
+        count = count_record(cursor)
+        # ユーザが登録済みかを確認する.
+        if _is_exists_userid(cursor, testuserid): # すでにユーザが存在する
+            await client.send_message(message.channel, "{0}様はもう登録されておりますよ。".format(testuser))
+            return
+        update = _insert_user(cursor, testuserid ,testuser ,address ,balance ,pending)
+        connection.commit()
+    return
+
+# balanceに値を設定する
+#ex) ,adminsend ironwood#7205 1000.0
+async def _cmd_admin_send(client, message):
+    if not message.content.startswith(_CMD_STR_ADMIN_SEND):
+        return
+    src_user     = str(message.author)
+    src_userid   = str(message.author.id)
+    user_mention = str(message.author.mention)
+    params       = message.content.split()
+
+    if not _is_admin_user(src_user):
+        return
+    dbg_print("{0} {1}:{2}".format(_CMD_STR_ADMIN_SEND, message.author, message.content))
+
+    if (len(params) != 3):
+        await client.send_message(message.channel, "コマンドが間違えています.")
+        return
+
+    user_info = _get_user2member(client, params[1])
+    if user_info is None:
+        await client.send_message(message.channel, "コマンドが間違えています.2")
+        return
+    dst_userid = user_info.id
+    try:
+        amount  = float(params[2])
+    except:
+        # exceptionで戻る
+        await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, amount))
+        return
+
+    dst_balance = 0.0
+    dst_pending = 0.0
+    dst_username = ''
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        cursor = connection.cursor()
+        row = _get_user_row(cursor, dst_userid)
+        if row is not None:
+            dst_balance  = row[WalletNum.BALANCE.value]
+            dst_pending  = row[WalletNum.PENDING.value]
+            dst_username = row[WalletNum.USER.value]
+
+            dst_balance += amount
+            if not _update_balance(cursor, dst_userid, dst_balance):
+                await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
+                return
+        else:
+            await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
+            return
+        connection.commit()
+
+    ################################
+    # ADMIN 残高表示
+    ################################
+    bl_user     = "**所有者**\r\n{0} 様 ({1}) \r\n".format(dst_username, dst_userid)
+    bl_balance  = "**残高**\r\n{0} XSEL   \r\n".format(dst_balance)
+    bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(dst_pending)
+    disp_msg = bl_user +bl_balance + bl_pending
+    await _disp_rep_msg( client, message,'残高(BALANCE)','残高更新しました。',disp_msg )
+    ################################
+    return
+
+# 自分のbalanceに値を加算する。
+# ,adminself 1000,0
+async def _cmd_admin_self(client, message):
+    if not message.content.startswith(_CMD_STR_ADMIN_SELF):
+        return
+    src_username = str(message.author)
+    src_userid   = str(message.author.id)
+    user_mention = str(message.author.mention)
+    params       = message.content.split()
+
+    if not _is_admin_user(src_username):
+        return
+
+    dbg_print("{0} {1}:{2}".format(_CMD_STR_ADMIN_SELF, message.author, message.content))
+
+    if (len(params) != 2):
+        await client.send_message(message.channel, "コマンドが間違えています.")
+        return
+    try:
+        amount  = float(params[1])
+    except:
+        # exceptionで戻る
+        await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, amount))
+        return
+
+    src_balance = 0.0
+    src_pending = 0.0
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        cursor = connection.cursor()
+        row    = _get_user_row(cursor, dst_userid)
+        if row is not None:
+            src_balance = row[WalletNum.BALANCE.value]
+            src_pending = row[WalletNum.PENDING.value]
+            src_balance += amount
+            if not _update_balance(cursor, src_userid, src_balance):
+                await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
+                return
+        else:
+            await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
+            return
+        connection.commit()
+
+    ################################
+    # ADMIN 残高表示
+    ################################
+    bl_user     = "**所有者**\r\n{0} 様 ({1}) \r\n".format(src_username, src_userid)
+    bl_balance  = "**残高**\r\n{0} XSEL   \r\n".format(src_balance)
+    bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(src_pending)
+    disp_msg = bl_user +bl_balance + bl_pending
+    await _disp_rep_msg( client, message,'残高(BALANCE)','残高更新しました。',disp_msg )
+    ################################
+    return
+
+# discord balance total xsel
+# ,adminbalance
+# discord上の総額を表示
+async def _cmd_admin_balance(client, message):
+    if not message.content.startswith(_CMD_STR_ADMIN_BALANCE):
+        return
+    src_user     = str(message.author)
+    src_userid   = str(message.author.id)
+    user_mention = str(message.author.mention)
+    params       = message.content.split()
+
+    if not _is_admin_user(src_user):
+        return
+
+    dbg_print("{0} {1}:{2}".format(_CMD_STR_ADMIN_SEND, message.author, message.content))
+
+    if (len(params) != 1):
+        await client.send_message(message.channel, "コマンドが間違えています.")
+        return
+
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        cursor = connection.cursor()
+        # ---------------------------------------
+        total_balane = 0.0
+        select_sql = 'select * from ' + REG_TABLENAME
+        cursor.execute(select_sql)
+        while 1:
+            dst_balance = 0.0
+            dst_username = ''
+            row = cursor.fetchone();
+            if row is not None:
+                dst_balance = row[WalletNum.BALANCE.value]
+                dst_username = row[WalletNum.USER.value]
+            else:
+                break
+            total_balane += dst_balance
+    ################################
+    totalb_src  = "**総額**\r\n{0} XSEL\r\n".format(total_balane)
+    disp_msg = totalb_src
+    await _disp_rep_msg( client, message,'discord wallet','結果を表示します。',disp_msg )
+    ################################
+    return
+
+##########################################
+# debug
+##########################################
+# ユーザ確認
+# ,dbg members online
+# ,dbg members all
+async def _cmd_dbg_cmd(client, message):
+    if message.content.startswith(_CMD_STR_DBG_CMD):
+        dbg_print("{0} {1}:{2}".format(_CMD_STR_DBG_CMD, message.author, message.content))
+
+        send_ch = message.channel
+        #send_ch = message.author
+        # user         = str(message.author)
+
+        params = message.content.split()
+        src_addr = ""
+        if (len(params) < 3):
+            await client.send_message(send_ch, "dbgコマンドが間違えている.")
+            return
+
+        # ,dbg members online
+        # ,dbg members all
+        if "members" == str(params[1]):
+            if "online" == str(params[2]):
+                members = client.get_all_members()
+                # # onlineユーザ取得
+                online_users = list(filter(lambda x: (x.bot == False) and (x.status == discord.Status.online), members))
+                # # Member obj->mapでmember名->list->str->send
+                await client.send_message(send_ch, str(list(map(str,online_users))))
+            elif "all" == str(params[2]):
+                members = client.get_all_members()
+                # allユーザ(botのみ除く)
+                all_users = list(filter(lambda x: x.bot == False, members))
+                users_dict={}
+
+                # ユーザとユーザIDの辞書を作成
+                for member in all_users:
+                    users_dict[str(member)] = member.id
+
+                # ユーザIDからユーザを取得
+                for value in users_dict.values():
+                    # print(str(value))
+                    obj = await client.get_user_info(value)
+                    print(str(obj))
+
+                await client.send_message(send_ch, str(users_dict))
+    return
 ##########################################
 # Utility
 ##########################################
@@ -676,6 +919,26 @@ def _update_username(cursor, userid, username):
         sql = 'update ' + REG_TABLENAME + ' set username=? where id=?'
         print(sql)
         cursor.execute(sql, (username, userid))
+        update = True
+    return update
+
+# address更新
+def _update_address(cursor, userid, address):
+    update = False
+    if _is_exists_userid(cursor, userid):
+        sql = 'update ' + REG_TABLENAME + ' set address=? where id=?'
+        print(sql)
+        cursor.execute(sql, (address, userid))
+        update = True
+    return update
+
+# username更新
+def _update_pending(cursor, userid, pending):
+    update = False
+    if _is_exists_userid(cursor, userid):
+        sql = 'update ' + REG_TABLENAME + ' set pending=? where id=?'
+        print(sql)
+        cursor.execute(sql, (pending, userid))
         update = True
     return update
 
@@ -743,234 +1006,14 @@ def _get_online_members(client, message):
         online_members = list(filter(lambda x: (x.bot == False) and (x.status == discord.Status.online) and (message.author.id != member.id), client.get_all_members()))
     return online_members
 
-##########################################
-# debug
-##########################################
-# ユーザ確認
-async def _cmd_dbg_cmd(client, message):
-    if message.content.startswith(_CMD_STR_DBG_CMD):
-        dbg_print("{0} {1}:{2}".format(_CMD_STR_DBG_CMD, message.author, message.content))
+# admin user check
+def _is_admin_user(user):
+    admin_member = list(filter(lambda x: (x == user) , cmd_admin_lst))
+    if (len(admin_member) > 0):
+        return True
+    return False
 
-        # send_ch = message.channel
-        send_ch = message.author
-        # user         = str(message.author)
 
-        params = message.content.split()
-        src_addr = ""
-        if (len(params) < 3):
-            await client.send_message(send_ch, "dbgコマンドが間違えている.")
-            return
-
-        # ,dbg members online
-        # ,dbg members all
-        if "members" == str(params[1]):
-            if "online" == str(params[2]):
-                # members = client.get_all_members()
-                # # onlineユーザ取得
-                online_users = list(filter(lambda x: (x.bot == False) and (x.status == discord.Status.online), members))
-                # # Member obj->mapでmember名->list->str->send
-                await client.send_message(send_ch, str(list(map(str,online_users))))
-            elif "all" == str(params[2]):
-                members = client.get_all_members()
-                # allユーザ(botのみ除く)
-                all_users = list(filter(lambda x: x.bot == False, members))
-                users_dict={}
-
-                # ユーザとユーザIDの辞書を作成
-                for member in all_users:
-                    users_dict[str(member)] = member.id
-
-                # ユーザIDからユーザを取得
-                for value in users_dict.values():
-                    # print(str(value))
-                    obj = await client.get_user_info(value)
-                    print(str(obj))
-
-                await client.send_message(send_ch, str(users_dict))
-    return
-
-##########################################
-# admin用
-# cmd_admin_strに設定されているユーザしか実行できない。
-##########################################
-async def _cmd_test_register(client, message):
-    if not message.content.startswith(_CMD_STR_TEST_REGISTER):
-        return
-    # 送信用にアドレス入れておく
-    testuserid = '999999999999999999'
-    testuser   = 'seni#6719'
-    address    = INIT_ADDR_DUMMY
-    balance    = 1000.0
-    pending    = 0.0
-
-    with closing(sqlite3.connect(DBNAME)) as connection:
-        cursor = connection.cursor()
-        count = count_record(cursor)
-        # ユーザが登録済みかを確認する.
-        if _is_exists_userid(cursor, testuserid): # すでにユーザが存在する
-            await client.send_message(message.channel, "{0}様はもう登録されておりますよ。".format(testuser))
-            return
-        update = _insert_user(cursor, testuserid ,testuser ,address ,balance ,pending)
-        connection.commit()
-    return
-
-# balanceに値を設定する
-#ex) ,adminsend ironwood#7205 1000.0
-async def _cmd_admin_send(client, message):
-    if not message.content.startswith(_CMD_STR_ADMIN_SEND):
-        return
-    src_user     = str(message.author)
-    src_userid   = str(message.author.id)
-    user_mention = str(message.author.mention)
-    params       = message.content.split()
-
-    if (src_user != cmd_admin_str):
-        return
-
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_ADMIN_SEND, message.author, message.content))
-
-    if (len(params) != 3):
-        await client.send_message(message.channel, "コマンドが間違えています.")
-        return
-
-    user_info = _get_user2member(client, params[1])
-    if user_info is None:
-        await client.send_message(message.channel, "コマンドが間違えています.2")
-        return
-    dst_userid = user_info.id
-    try:
-        amount  = float(params[2])
-    except:
-        # exceptionで戻る
-        await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, amount))
-        return
-
-    dst_balance = 0.0
-    dst_pending = 0.0
-    dst_username = ''
-    with closing(sqlite3.connect(DBNAME)) as connection:
-        cursor = connection.cursor()
-        row = _get_user_row(cursor, dst_userid)
-        if row is not None:
-            dst_balance  = row[WalletNum.BALANCE.value]
-            dst_pending  = row[WalletNum.PENDING.value]
-            dst_username = row[WalletNum.USER.value]
-
-            dst_balance += amount
-            if not _update_balance(cursor, dst_userid, dst_balance):
-                await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
-                return
-        else:
-            await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
-            return
-        connection.commit()
-
-    ################################
-    # ADMIN 残高表示
-    ################################
-    bl_user     = "**所有者**\r\n{0} 様 ({1}) \r\n".format(dst_username, dst_userid)
-    bl_balance  = "**残高**\r\n{0} XSEL   \r\n".format(dst_balance)
-    bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(dst_pending)
-    disp_msg = bl_user +bl_balance + bl_pending
-    await _disp_rep_msg( client, message,'残高(BALANCE)','残高更新しました。',disp_msg )
-    ################################
-    return
-
-# 自分のbalanceに値を設定する
-# ,adminself 1000,0
-async def _cmd_admin_self(client, message):
-    if not message.content.startswith(_CMD_STR_ADMIN_SELF):
-        return
-    src_username = str(message.author)
-    src_userid   = str(message.author.id)
-    user_mention = str(message.author.mention)
-    params       = message.content.split()
-
-    if (src_username != cmd_admin_str):
-        return
-
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_ADMIN_SELF, message.author, message.content))
-
-    if (len(params) != 2):
-        await client.send_message(message.channel, "コマンドが間違えています.")
-        return
-    try:
-        amount  = float(params[1])
-    except:
-        # exceptionで戻る
-        await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, amount))
-        return
-
-    src_balance = 0.0
-    src_pending = 0.0
-    with closing(sqlite3.connect(DBNAME)) as connection:
-        cursor = connection.cursor()
-        row    = _get_user_row(cursor, dst_userid)
-        if row is not None:
-            src_balance = row[WalletNum.BALANCE.value]
-            src_pending = row[WalletNum.PENDING.value]
-            src_balance += amount
-            if not _update_balance(cursor, src_userid, src_balance):
-                await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
-                return
-        else:
-            await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
-            return
-        connection.commit()
-
-    ################################
-    # ADMIN 残高表示
-    ################################
-    bl_user     = "**所有者**\r\n{0} 様 ({1}) \r\n".format(src_username, src_userid)
-    bl_balance  = "**残高**\r\n{0} XSEL   \r\n".format(src_balance)
-    bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(src_pending)
-    disp_msg = bl_user +bl_balance + bl_pending
-    await _disp_rep_msg( client, message,'残高(BALANCE)','残高更新しました。',disp_msg )
-    ################################
-    return
-
-# discord balance total xsel
-# ,adminbalance
-# discord上の総額を表示
-async def _cmd_admin_balance(client, message):
-    if not message.content.startswith(_CMD_STR_ADMIN_BALANCE):
-        return
-    src_user     = str(message.author)
-    src_userid   = str(message.author.id)
-    user_mention = str(message.author.mention)
-    params       = message.content.split()
-
-    if (src_user != cmd_admin_str):
-        return
-
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_ADMIN_SEND, message.author, message.content))
-
-    if (len(params) != 1):
-        await client.send_message(message.channel, "コマンドが間違えています.")
-        return
-
-    with closing(sqlite3.connect(DBNAME)) as connection:
-        cursor = connection.cursor()
-        # ---------------------------------------
-        total_balane = 0.0
-        select_sql = 'select * from ' + REG_TABLENAME
-        cursor.execute(select_sql)
-        while 1:
-            dst_balance = 0.0
-            dst_username = ''
-            row = cursor.fetchone();
-            if row is not None:
-                dst_balance = row[WalletNum.BALANCE.value]
-                dst_username = row[WalletNum.USER.value]
-            else:
-                break
-            total_balane += dst_balance
-    ################################
-    totalb_src  = "**総額**\r\n{0} XSEL\r\n".format(total_balane)
-    disp_msg = totalb_src
-    await _disp_rep_msg( client, message,'discord wallet','結果を表示します。',disp_msg )
-    ################################
-    return
 ##########################################
 # 表示
 ##########################################
@@ -987,18 +1030,4 @@ async def _disp_rep_msg( client, message, disp_name, disp_title, disp_msg ):
 def dbg_print( msg_str ):
     print(msg_str)
     pass
-
-##########################################
-# RPC
-##########################################
-# RPCでアドレスを作成する依頼を出す。
-def _get_regist_address(user):
-    # TODO ここでRPC経由でアドレスを取得する。
-
-    # rpc_connection = AuthServiceProxy("http://%s:%s@127.0.0.1:8332"%(myserver.rpc_user, myserver.rpc_password))
-    # best_block_hash = rpc_connection.getbestblockhash()
-    # print(rpc_connection.getblock(best_block_hash))
-
-    return "Sxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-
 
