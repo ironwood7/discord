@@ -117,6 +117,7 @@ async def on_message_inner(client, message):
         await _cmd_admin_send(client, message)
         await _cmd_admin_self(client, message)
         await _cmd_admin_balance(client, message)
+        await _cmd_balance(client, message)
 
     return
 
@@ -698,7 +699,7 @@ def _is_exists_userid(cursor, userid):
 
 # exist user & address pare
 def _is_exists_record(cursor, userid, user_name, address, balance, pending):
-    select_sql = 'select * from ' + REG_TABLENAME + ' where id=? and user_name=? and address=? and balance=? and pending=?'
+    select_sql = 'select * from ' + REG_TABLENAME + ' where id=? and username=? and address=? and balance=? and pending=?'
     # select_sql = 'select * from ' + REG_TABLENAME + ' where id=?'
     print(select_sql)
     cursor.execute(select_sql, (userid, user_name, address, balance, pending))
