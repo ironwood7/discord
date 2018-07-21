@@ -90,6 +90,6 @@ def daemonize():
 if __name__ == '__main__':
     while True:
         daemonize()
-    test
+    # # test
     # client.run(myserver.TOKEN)
 
