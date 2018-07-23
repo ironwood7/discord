@@ -56,8 +56,9 @@ DBNAME = 'discordwallet.db'
 REG_TABLENAME= 'wallet'
 MAX_RECORD = 10000000
 
-# ダミーのアドレス(本当のアドレスはSから. tは仮)
-INIT_ADDR_DUMMY='tXXXXXXXXXXXXXXXXXXXXXXXXXX'
+
+INIT_REG_BALANCE = 100.0
+INIT_ADDR_DUMMY  = 'txxxxxxxxxxxxxxxxxxxxxxxxxx'   # ダミーのアドレス(本当のアドレスはSから. tは仮)
 
 # command string
 _CMD_STR_REGISTER      = ",register"
@@ -122,7 +123,6 @@ async def on_message_inner(client, message):
         await _cmd_admin_self(client, message)
         await _cmd_admin_balance(client, message)
         await _cmd_balance(client, message)
-
     return
 
 # ----------------------------------------
@@ -175,7 +175,7 @@ async def _cmd_register(client, message):
     # 初期情報
     # 送信用にアドレス入れておく
     address = INIT_ADDR_DUMMY
-    balance = 0.0
+    balance = INIT_REG_BALANCE
     pending = 0.0
     #################################
     with closing(sqlite3.connect(DBNAME)) as connection:
@@ -402,11 +402,11 @@ async def _cmd_tip(client, message):
             return
         connection.commit()
     ################################
-    tip_user = "**送信者**\r\n{0} 様 ({1})  \r\n".format(username, src_userid)
-    tip_dst  = "**送信先**\r\n{0} 様 ({1})    \r\n".format(to_user, to_userid)
+    tip_user = "**送金者**\r\n{0} 様 ({1})  \r\n".format(username, src_userid)
+    tip_dst  = "**送金先**\r\n{0} 様 ({1})    \r\n".format(to_user, to_userid)
     tip_am   = "**送金額**\r\n{0} XSEL\r\n".format(amount)
-    tip_am   = "**残高**\r\n{0} XSEL\r\n".format(src_balance)
-    disp_msg = tip_user +tip_dst +tip_am
+    tip_bl   = "**残高**\r\n{0} XSEL\r\n".format(src_balance)
+    disp_msg = tip_user +tip_dst +tip_am +tip_bl
     await _disp_rep_msg( client, message,'送金(tip)','以下のように送金いたしました。',disp_msg )
     ################################
     return
@@ -546,7 +546,7 @@ async def _cmd_rain(client, message):
 
     ################################
     ra_user  = "**所有者**\r\n{0} 様  \r\n".format(user, src_userid)
-    ra_sent  = "**送信数**\r\n{0}     \r\n".format(sent_count)
+    ra_sent  = "**送金数**\r\n{0}     \r\n".format(sent_count)
     ra_total = "**総送金額**\r\n{0} XSEL\r\n".format(total_sent)
     ra_am    = "**一人あたりの送金料**\r\n{0} XSEL\r\n".format(amount)
     disp_msg = ra_user +ra_sent +ra_total +ra_am
@@ -618,8 +618,8 @@ async def _cmd_withdraw(client, message):
 
     ################################
     wd_user = "**所有者**\r\n{0} 様({1})  \r\n".format(username, userid)
-    wd_src  = "**送信元**\r\n{0}     \r\n".format(src_addr)
-    wd_dst  = "**送信先**\r\n{0}     \r\n".format(dst_addr)
+    wd_src  = "**送金元**\r\n{0}     \r\n".format(src_addr)
+    wd_dst  = "**送金先**\r\n{0}     \r\n".format(dst_addr)
     wd_am   = "**送金額**\r\n{0} XSEL\r\n".format(amount)
     disp_msg = wd_user +wd_src +wd_dst +wd_am
     await _disp_rep_msg( client, message,'送金(withdraw)','以下のように送金しました。',disp_msg )
@@ -641,28 +641,6 @@ async def _cmd_deposit(client, message):
 # admin用
 # cmd_admin_lstに設定されているユーザしか実行できない。
 ##########################################
-# testユーザ登録（一人)
-# ,testregister
-async def _cmd_test_register(client, message):
-    if not message.content.startswith(_CMD_STR_TEST_REGISTER):
-        return
-    # 送信用にアドレス入れておく
-    testuserid = '441218236227387407'
-    testuser   = 'seni#6719'
-    address    = INIT_ADDR_DUMMY
-    balance    = 0.0
-    pending    = 0.0
-
-    with closing(sqlite3.connect(DBNAME)) as connection:
-        cursor = connection.cursor()
-        count = count_record(cursor)
-        # ユーザが登録済みかを確認する.
-        if _is_exists_userid(cursor, testuserid): # すでにユーザが存在する
-            await client.send_message(message.channel, "{0}様はもう登録されておりますよ。".format(testuser))
-            return
-        update = _insert_user(cursor, testuserid ,testuser ,address ,balance ,pending)
-        connection.commit()
-    return
 
 # balanceに値を設定する
 #ex) ,adminsend ironwood#7205 1000.0
@@ -1014,6 +992,8 @@ def _is_admin_user(user):
     return False
 
 
+
+
 ##########################################
 # 表示
 ##########################################
@@ -1030,4 +1010,31 @@ async def _disp_rep_msg( client, message, disp_name, disp_title, disp_msg ):
 def dbg_print( msg_str ):
     print(msg_str)
     pass
+
+##########################################
+# 後ほど破棄
+##########################################
+# testユーザ登録
+# ,testregister
+async def _cmd_test_register(client, message):
+    if not message.content.startswith(_CMD_STR_TEST_REGISTER):
+        return
+    # 送信用にアドレス入れておく
+    testuserid = '441218236227387407'
+    testuser   = 'seni#6719'
+    address    = INIT_ADDR_DUMMY
+    balance    = INIT_REG_BALANCE
+    pending    = 0.0
+
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        cursor = connection.cursor()
+        count = count_record(cursor)
+        # ユーザが登録済みかを確認する.
+        if _is_exists_userid(cursor, testuserid): # すでにユーザが存在する
+            await client.send_message(message.channel, "{0}様はもう登録されておりますよ。".format(testuser))
+            return
+        update = _insert_user(cursor, testuserid ,testuser ,address ,balance ,pending)
+        connection.commit()
+    await client.send_message(message.channel, "```登録しました。```")
+    return
 
