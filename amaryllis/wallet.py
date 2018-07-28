@@ -4,7 +4,8 @@ import sqlite3
 import myserver_test as myserver
 from contextlib import closing
 from enum import Enum
-from decimal import Decimal, getcontext, FloatOperation
+from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
+
 
 # from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
@@ -106,32 +107,35 @@ def on_ready():
     _create_table()
 
 async def on_message_inner(client, message):
-    # dump
-    if message.channel.id == myserver.CH_ID_REGISTER:
+    params = message.content.split()
+
+    if (_CMD_STR_TIP == params[0]):
+        await _cmd_tip(client, message, params)
+    elif (_CMD_STR_RAIN == params[0]):
+        await _cmd_rain(client, message, params)
+    elif message.channel.id == myserver.CH_ID_REGISTER:
         # 登録
-        await _cmd_register(client, message)
+        await _cmd_register(client, message, params)
     elif message.channel.id == myserver.CH_ID_WALLET:
         # WALLET
-        await _cmd_address(client, message)
-        await _cmd_balance(client, message)
-        await _cmd_tip(client, message)
-        await _cmd_rain(client, message)
+        await _cmd_address(client, message, params)
+        await _cmd_balance(client, message, params)
         # 未実装
-        await _cmd_info(client, message)
-        await _cmd_withdraw(client, message)
-        await _cmd_deposit(client, message)
+        await _cmd_info(client, message, params)
+        await _cmd_withdraw(client, message, params)
+        await _cmd_deposit(client, message, params)
         # other
-        await _cmd_version(client, message)
+        await _cmd_version(client, message, params)
     elif message.channel.id == myserver.CH_ID_ADMIN:
         # ADMIN
-        await _cmd_dump(client, message)
-        await _cmd_dbg_cmd(client, message)
-        await _cmd_test_register(client, message)
-        await _cmd_admin_send(client, message)
-        await _cmd_admin_self(client, message)
-        await _cmd_admin_balance(client, message)
-        await _cmd_balance(client, message)
-        await _cmd_version(client, message)
+        await _cmd_dump(client, message, params)
+        await _cmd_dbg_cmd(client, message, params)
+        await _cmd_test_register(client, message, params)
+        await _cmd_admin_send(client, message, params)
+        await _cmd_admin_self(client, message, params)
+        await _cmd_admin_balance(client, message, params)
+        await _cmd_balance(client, message, params)
+        await _cmd_version(client, message, params)
     return
 
 # ----------------------------------------
@@ -140,8 +144,8 @@ async def on_message_inner(client, message):
 
 # ,register
 # discord ウォレットを作成する。
-async def _cmd_register(client, message):
-    if not message.content.startswith(_CMD_STR_REGISTER):
+async def _cmd_register(client, message, params):
+    if not params[0] == _CMD_STR_REGISTER:
         return
     dbg_print("{0} {1}:{2}".format(_CMD_STR_REGISTER, message.author, message.content))
     # param get
@@ -205,7 +209,7 @@ async def _cmd_register(client, message):
             await client.send_message(message.channel, "{0}さま、なんか失敗しました。".format(user_mention))
     if accept:
         ################################
-        rg_user  = "**所有者**\r\n{0} 様({1}) \r\n".format(user_name, userid)
+        rg_user  = "**所有者**\r\n{0} 様\r\n".format(user_mention)
         rg_src   = "**アドレス**\r\n{0}   \r\n".format(address)
         disp_msg = rg_user +rg_src
         await _disp_rep_msg( client, message,'登録情報','',disp_msg )
@@ -213,8 +217,8 @@ async def _cmd_register(client, message):
     return
 
 # ,dump デバッグコマンド。printするだけ
-async def _cmd_dump(client, message):
-    if not message.content.startswith(_CMD_STR_DUMP):
+async def _cmd_dump(client, message, params):
+    if not params[0] == _CMD_STR_DUMP:
         # なにもしない
         return
     dbg_print("{0} {1}:{2}".format(_CMD_STR_DUMP, message.author, message.content))
@@ -230,8 +234,8 @@ async def _cmd_dump(client, message):
 
 # ,info
 # 現在のXSELの価格を表示します。
-async def _cmd_info(client, message):
-    if not message.content.startswith(_CMD_STR_INFO):
+async def _cmd_info(client, message, params):
+    if not params[0] == _CMD_STR_INFO:
         return
     dbg_print("{0} {1}:{2}".format(_CMD_STR_INFO, message.author, message.content))
     ################################
@@ -247,8 +251,8 @@ async def _cmd_info(client, message):
 
 # ,address
 # ウォレットアドレスを確認する。
-async def _cmd_address(client, message):
-    if not message.content.startswith(_CMD_STR_ADDRESS):
+async def _cmd_address(client, message, params):
+    if not params[0] == _CMD_STR_ADDRESS:
         return
     dbg_print("{0} {1}:{2}".format(_CMD_STR_ADDRESS, message.author, message.content))
     params       = message.content.split()
@@ -272,8 +276,8 @@ async def _cmd_address(client, message):
             return
 
     ################################
-    ad_user = "**所有者**\r\n{0} 様 ({1})  \r\n".format(username, userid)
-    ad_src  = "**アドレス**\r\n{0}     \r\n".format(src_addr)
+    ad_user = "**所有者**\r\n{0} 様\r\n".format(user_mention)
+    ad_src  = "**アドレス**\r\n{0}\r\n".format(src_addr)
     disp_msg = ad_user +ad_src
     await _disp_rep_msg( client, message,'登録情報','',disp_msg )
     ################################
@@ -282,9 +286,9 @@ async def _cmd_address(client, message):
 
 # ,balance
 # ウォレットの残高を確認する。
-async def _cmd_balance(client, message):
+async def _cmd_balance(client, message, params):
     # ウォレットの残高を確認します。
-    if not message.content.startswith(_CMD_STR_BALANCE):
+    if not params[0] == _CMD_STR_BALANCE:
         return
     dbg_print("{0} {1}:{2}".format(_CMD_STR_BALANCE, message.author, message.content))
     # userからaddressを取得する。
@@ -315,8 +319,8 @@ async def _cmd_balance(client, message):
     ################################
     # 残高表示
     ################################
-    bl_user     = "**所有者**\r\n{0} 様 ({1}) \r\n".format(username, userid)
-    bl_balance  = "**残高**\r\n{0} XSEL   \r\n".format(src_balance)
+    bl_user     = "**所有者**\r\n{0} 様\r\n".format(user_mention)
+    bl_balance  = "**残高**\r\n{0} XSEL\r\n".format(src_balance)
     bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(src_pending)
     disp_msg = bl_user +bl_balance + bl_pending
     await _disp_rep_msg( client, message,'残高(BALANCE)','残高でございます。',disp_msg )
@@ -327,8 +331,8 @@ async def _cmd_balance(client, message):
 # 「to」に対して、「amount」XSELを渡します。
 # toには、discordの名前を指定してください。
 # 例：,tip seln#xxxx 3
-async def _cmd_tip(client, message):
-    if not message.content.startswith(_CMD_STR_TIP):
+async def _cmd_tip(client, message, params):
+    if not params[0] == _CMD_STR_TIP:
         return
     # 「to」に対して、「amount」XSELを渡します。 toには、discordの名前を指定してください。
     # 例：,tip seln#xxxx 3
@@ -413,8 +417,9 @@ async def _cmd_tip(client, message):
             return
         connection.commit()
     ################################
-    tip_user = "**送金者**\r\n{0} 様 ({1})  \r\n".format(username, src_userid)
-    tip_dst  = "**送金先**\r\n{0} 様 ({1})    \r\n".format(to_user, to_userid)
+    # tip_user = "**送金者**\r\n{0} 様\r\n".format(username)
+    tip_user = "**送金者**\r\n{0} 様\r\n".format(user_mention)
+    tip_dst  = "**送金先**\r\n{0} 様\r\n".format(to_user, to_userid)
     tip_am   = "**送金額**\r\n{0} XSEL\r\n".format(amount)
     tip_bl   = "**残高**\r\n{0} XSEL\r\n".format(src_balance)
     disp_msg = tip_user +tip_dst +tip_am +tip_bl
@@ -423,14 +428,15 @@ async def _cmd_tip(client, message):
     return
 
 # ,rain (amount)
-# オフラインではない人で、挿入金額が5XSEL未満の人にXSELを均等にプレゼント。
-async def _cmd_rain(client, message):
-    if not message.content.startswith(_CMD_STR_RAIN):
+# オフラインではない人で、XSELを均等にプレゼント。
+async def _cmd_rain(client, message, params):
+    if not params[0] == _CMD_STR_RAIN:
         return
     # ----------------------------
-    # -- 暫定仕様 --
-    # ------------------------
-    # オフラインではない人で、XSELを均等にプレゼント。
+    # Decimal演算 : 有効桁数を8
+    # getcontext().prec = 8
+    # ----------------------------
+
     dbg_print("{0} {1}:{2}".format(_CMD_STR_RAIN, message.author, message.content))
     # 引数からdstaddressを取得する。
     # ユーザからsrcaddressを取得する。
@@ -438,9 +444,6 @@ async def _cmd_rain(client, message):
     user         = str(message.author)
     src_userid   = str(message.author.id)
     user_mention = message.author.mention
-
-    # # 有効桁数を3
-    # getcontext().prec = 3
 
     if (len(params) != 2):
         await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user_mention))
@@ -565,7 +568,7 @@ async def _cmd_rain(client, message):
         connection.commit()
 
     ################################
-    ra_user  = "**所有者**\r\n{0} 様  \r\n".format(user, src_userid)
+    ra_user  = "**所有者**\r\n{0} 様  \r\n".format(user_mention)
     ra_sent  = "**送金数**\r\n{0}     \r\n".format(sent_count)
     ra_total = "**総送金額**\r\n{0} XSEL\r\n".format(total_sent)
     ra_am    = "**一人あたりの送金料**\r\n{0} XSEL\r\n".format(amount)
@@ -581,9 +584,9 @@ async def _cmd_rain(client, message):
 # ,deposit addr (amount)    TODO アドレスいる？自分のならいらない
 # ウォレットからdiscord walletに送金します。
 # ウォレットにXSELを入れるには、このアドレスに送金してください。
-async def _cmd_withdraw(client, message):
+async def _cmd_withdraw(client, message, params):
     # 「addr」に対して、「amount」XSELを送金します。
-    if not message.content.startswith(_CMD_STR_WITHDRAW):
+    if not params[0] == _CMD_STR_WITHDRAW:
         return
     dbg_print("{0} {1}:{2}".format(_CMD_STR_WITHDRAW, message.author, message.content))
 
@@ -637,7 +640,7 @@ async def _cmd_withdraw(client, message):
     # src_addr,dst_addr,amount
 
     ################################
-    wd_user = "**所有者**\r\n{0} 様({1})  \r\n".format(username, userid)
+    wd_user = "**所有者**\r\n{0} 様  \r\n".format(usermention)
     wd_src  = "**送金元**\r\n{0}     \r\n".format(src_addr)
     wd_dst  = "**送金先**\r\n{0}     \r\n".format(dst_addr)
     wd_am   = "**送金額**\r\n{0} XSEL\r\n".format(amount)
@@ -649,8 +652,8 @@ async def _cmd_withdraw(client, message):
 
 # ,withdraw (addr)(amount)
 # 「addr」に対して、「amount」XSELを送金します。
-async def _cmd_deposit(client, message):
-    if not message.content.startswith(_CMD_STR_DEPOSIT):
+async def _cmd_deposit(client, message, params):
+    if not params[0] == _CMD_STR_DEPOSIT:
         return
     dbg_print("{0} {1}:{2}".format(_CMD_STR_DEPOSIT, message.author, message.content))
     disp_msg=""
@@ -664,8 +667,8 @@ async def _cmd_deposit(client, message):
 
 # balanceに値を設定する
 #ex) ,adminsend ironwood#7205 1000.0
-async def _cmd_admin_send(client, message):
-    if not message.content.startswith(_CMD_STR_ADMIN_SEND):
+async def _cmd_admin_send(client, message, params):
+    if not params[0] == _CMD_STR_ADMIN_SEND:
         return
     src_user     = str(message.author)
     src_userid   = str(message.author.id)
@@ -716,9 +719,9 @@ async def _cmd_admin_send(client, message):
         connection.commit()
 
     ################################
-    # ADMIN 残高表示
+    # 残高表示
     ################################
-    bl_user     = "**所有者**\r\n{0} 様 ({1}) \r\n".format(dst_username, dst_userid)
+    bl_user     = "**所有者**\r\n{0} 様\r\n".format(dst_username)
     bl_balance  = "**残高**\r\n{0} XSEL   \r\n".format(dst_balance)
     bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(dst_pending)
     disp_msg = bl_user +bl_balance + bl_pending
@@ -728,8 +731,8 @@ async def _cmd_admin_send(client, message):
 
 # 自分のbalanceに値を加算する。
 # ,adminself 1000,0
-async def _cmd_admin_self(client, message):
-    if not message.content.startswith(_CMD_STR_ADMIN_SELF):
+async def _cmd_admin_self(client, message, params):
+    if not params[0] == _CMD_STR_ADMIN_SELF:
         return
     src_username = str(message.author)
     src_userid   = str(message.author.id)
@@ -784,8 +787,8 @@ async def _cmd_admin_self(client, message):
 # discord balance total xsel
 # ,adminbalance
 # discord上の総額を表示
-async def _cmd_admin_balance(client, message):
-    if not message.content.startswith(_CMD_STR_ADMIN_BALANCE):
+async def _cmd_admin_balance(client, message, params):
+    if not params[0] == _CMD_STR_ADMIN_BALANCE:
         return
     src_user     = str(message.author)
     src_userid   = str(message.author.id)
@@ -826,8 +829,8 @@ async def _cmd_admin_balance(client, message):
 
 # 自分のbalanceに値を加算する。
 # ,adminself 1000,0
-async def _cmd_version(client, message):
-    if not message.content.startswith(_CMD_STR_VERSION):
+async def _cmd_version(client, message, params):
+    if not params[0] == _CMD_STR_VERSION:
         return
     src_username = str(message.author)
     src_userid   = str(message.author.id)
@@ -844,8 +847,8 @@ async def _cmd_version(client, message):
 # ユーザ確認
 # ,dbg members online
 # ,dbg members all
-async def _cmd_dbg_cmd(client, message):
-    if message.content.startswith(_CMD_STR_DBG_CMD):
+async def _cmd_dbg_cmd(client, message, params):
+    if not params[0] == _CMD_STR_DBG_CMD:
         dbg_print("{0} {1}:{2}".format(_CMD_STR_DBG_CMD, message.author, message.content))
 
         send_ch = message.channel
@@ -1068,8 +1071,8 @@ def dbg_print( msg_str ):
 ##########################################
 # testユーザ登録
 # ,testregister
-async def _cmd_test_register(client, message):
-    if not message.content.startswith(_CMD_STR_TEST_REGISTER):
+async def _cmd_test_register(client, message, params):
+    if not params[0] == _CMD_STR_TEST_REGISTER:
         return
     # 送信用にアドレス入れておく
     testuserid = '441218236227387407'
