@@ -1,7 +1,7 @@
 import discord
 import sqlite3
-# import myserver
-import myserver_test as myserver
+import myserver
+# import myserver_test as myserver
 from contextlib import closing
 from enum import Enum
 from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
