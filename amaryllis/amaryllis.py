@@ -3,8 +3,8 @@
 import discord
 import private
 import welcome
-import myserver
-# import myserver_test as myserver
+# import myserver
+import myserver_test as myserver
 import wallet
 import sys
 import os
@@ -88,8 +88,8 @@ def daemonize():
 
 
 if __name__ == '__main__':
-    while True:
-        daemonize()
+    # while True:
+    #     daemonize()
     # # test
-    # client.run(myserver.TOKEN)
+    client.run(myserver.TOKEN)
 

@@ -1,9 +1,11 @@
 import discord
 import sqlite3
-import myserver
-# import myserver_test as myserver
+# import myserver
+import myserver_test as myserver
 from contextlib import closing
 from enum import Enum
+from decimal import Decimal, getcontext, FloatOperation
+
 # from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
 #########################################################
@@ -41,15 +43,16 @@ from enum import Enum
 #
 #########################################################
 
-cmd_admin_lst=["ironwood#7205"]
+cmd_admin_lst=["seni#6719", "ironwood#7205"]
 # amount上限
-WITHDRAW_AMOUNT_MAX = 1000000.0
-WITHDRAW_AMOUNT_MIN = 1.0
-TIP_AMOUNT_MAX      = 1000000.0
-TIP_AMOUNT_MIN      = 1.0
-RAIN_AMOUNT_MAX     = 10.0
-RAIN_AMOUNT_MIN     = 1.0
-RAIN_AMOUNT_TARGET_TH = 5.0
+WITHDRAW_AMOUNT_MAX   = 10000000.0
+WITHDRAW_AMOUNT_MIN   = 1.0
+TIP_AMOUNT_MAX        = 100000.0
+TIP_AMOUNT_MIN        = 1.0
+RAIN_AMOUNT_MAX       = 100000.0
+RAIN_AMOUNT_MIN       = 1.0
+# RAIN_AMOUNT_TARGET_TH = 5.0
+RELEASE_VERSION       = "Version:0.6"
 
 # 登録データ
 DBNAME = 'discordwallet.db'
@@ -58,7 +61,9 @@ MAX_RECORD = 10000000
 
 
 INIT_REG_BALANCE = 100.0
-INIT_ADDR_DUMMY  = 'txxxxxxxxxxxxxxxxxxxxxxxxxx'   # ダミーのアドレス(本当のアドレスはSから. tは仮)
+# ダミーのアドレス(本当のアドレスはSから. tは仮)
+# 後で本物のアドレスに入れ替える用
+INIT_ADDR_DUMMY  = 'txxxxxxxxxxxxxxxxxxxxxxxxxx'
 
 # command string
 _CMD_STR_REGISTER      = ",register"
@@ -69,6 +74,7 @@ _CMD_STR_RAIN          = ",rain"
 _CMD_STR_INFO          = ",info"
 _CMD_STR_DEPOSIT       = ",deposit"
 _CMD_STR_WITHDRAW      = ",withdraw"
+_CMD_STR_VERSION       = ",version"
 # adminsend, adminself
 _CMD_STR_ADMIN_SEND    = ",adminsend"
 _CMD_STR_ADMIN_SELF    = ",adminself"
@@ -78,13 +84,13 @@ _CMD_STR_DUMP          = ",dump"
 _CMD_STR_DBG_CMD       = ",dbg"
 _CMD_STR_TEST_REGISTER = ",testregister"
 
-class WalletInfo():
-    def __init__(self, userid='', user_name='', address='', balance=0.0, pending=0.0):
-        self.userid    = userid
-        self.user_name = user_name
-        self.address   = address
-        self.balance   = balance
-        self.pending   = pending
+# class WalletInfo():
+#     def __init__(self, userid='', user_name='', address='', balance=0.0, pending=0.0):
+#         self.userid    = userid
+#         self.user_name = user_name
+#         self.address   = address
+#         self.balance   = balance
+#         self.pending   = pending
     
     #TODO 後で計算処理を追加
 
@@ -114,6 +120,8 @@ async def on_message_inner(client, message):
         await _cmd_info(client, message)
         await _cmd_withdraw(client, message)
         await _cmd_deposit(client, message)
+        # other
+        await _cmd_version(client, message)
     elif message.channel.id == myserver.CH_ID_ADMIN:
         # ADMIN
         await _cmd_dump(client, message)
@@ -123,6 +131,7 @@ async def on_message_inner(client, message):
         await _cmd_admin_self(client, message)
         await _cmd_admin_balance(client, message)
         await _cmd_balance(client, message)
+        await _cmd_version(client, message)
     return
 
 # ----------------------------------------
@@ -339,6 +348,7 @@ async def _cmd_tip(client, message):
         return
     amount = 0.0
     try:
+        print(params[1])
         to_user = params[1]
         amount  = float(params[2])
     except:
@@ -356,7 +366,8 @@ async def _cmd_tip(client, message):
     # ----------------------------
     # 相手のアドレス探しておく
     to_userid=''
-    member = _get_user2member(client, to_user)  # メンバ取得
+    # member = _get_user2member(client, to_user)  # メンバ取得
+    member = _get_usermention2member(client, to_user)  # メンバ取得
     if member is not None:
         if False == member.bot:
             to_userid = member.id
@@ -428,6 +439,9 @@ async def _cmd_rain(client, message):
     src_userid   = str(message.author.id)
     user_mention = message.author.mention
 
+    # # 有効桁数を3
+    # getcontext().prec = 3
+
     if (len(params) != 2):
         await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user_mention))
         return
@@ -457,6 +471,10 @@ async def _cmd_rain(client, message):
             await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
             return
 
+    if amount <= 0.0:
+        await client.send_message(message.channel, "{0}様、0は受け付けておりません。amount:{2} XSEL".format(user_mention, amount))
+        return
+
     if src_balance < amount: # 残高がamountより下だったらエラー
         await client.send_message(message.channel, "{0}様、残高が足りません。balance:{1} XSEL / amount:{2} XSEL".format(user_mention, src_balance, float(amount)))
         return
@@ -485,12 +503,13 @@ async def _cmd_rain(client, message):
             row = _get_user_row(cursor, dst_userid)
             if row is not None:
                 bl = row[WalletNum.BALANCE.value]
-                # RAIN_AMOUNT_TARGET_THより下のXSELである場合は、RAIN対象とする。
-                if bl < RAIN_AMOUNT_TARGET_TH:
-                    dst_user_addrs.append(dst_userid)
+                # # RAIN_AMOUNT_TARGET_THより下のXSELである場合は、RAIN対象とする。
+                # if bl < RAIN_AMOUNT_TARGET_TH:
+                dst_user_addrs.append(dst_userid)
 
     # 対象ユーザが０であるか？
     send_user_count = len(dst_user_addrs)
+    print(send_user_count)
     if send_user_count <= 0:
         await client.send_message(message.channel, "{0}様、対象の方がいません。".format(user_mention))
         return
@@ -498,9 +517,10 @@ async def _cmd_rain(client, message):
     # ------------------------
     # RainAmount計算
     # ------------------------
-    rain_amount = amount * float(send_user_count)
-    # 1 XSEL以下だったら捨てる
-    if rain_amount > src_balance:
+    # rain_amount = amount * float(send_user_count)
+    total_amount = amount
+    send_amount = amount / float(send_user_count)
+    if total_amount > src_balance:
         await client.send_message(message.channel, "{0}様、残高が足りません。オンラインユーザ数:{1}, amount:{2} XSEL".format(user_mention, send_user_count, amount))
         return
     # ------------------------
@@ -513,7 +533,7 @@ async def _cmd_rain(client, message):
         cursor = connection.cursor()
         # ---------------------------------------
         # 残高からRainAmount分引いて更新
-        src_balance = src_balance - rain_amount
+        src_balance = src_balance - total_amount
         if not _update_balance(cursor, src_userid, src_balance):
             await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
             return
@@ -558,7 +578,7 @@ async def _cmd_rain(client, message):
 # 未対応、未実装        withdraw, info, deposit
 ####################################################################################
 
-# ,deposit
+# ,deposit addr (amount)    TODO アドレスいる？自分のならいらない
 # ウォレットからdiscord walletに送金します。
 # ウォレットにXSELを入れるには、このアドレスに送金してください。
 async def _cmd_withdraw(client, message):
@@ -660,9 +680,10 @@ async def _cmd_admin_send(client, message):
         await client.send_message(message.channel, "コマンドが間違えています.")
         return
 
-    user_info = _get_user2member(client, params[1])
+    # user_info = _get_user2member(client, params[1])
+    user_info = _get_usermention2member(client, params[1])
     if user_info is None:
-        await client.send_message(message.channel, "コマンドが間違えています.2")
+        await client.send_message(message.channel, "ユーザがいません。2")
         return
     dst_userid = user_info.id
     try:
@@ -684,6 +705,8 @@ async def _cmd_admin_send(client, message):
             dst_username = row[WalletNum.USER.value]
 
             dst_balance += amount
+            if (dst_balance < 0.0):
+                dst_balance = 0
             if not _update_balance(cursor, dst_userid, dst_balance):
                 await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
                 return
@@ -732,11 +755,13 @@ async def _cmd_admin_self(client, message):
     src_pending = 0.0
     with closing(sqlite3.connect(DBNAME)) as connection:
         cursor = connection.cursor()
-        row    = _get_user_row(cursor, dst_userid)
+        row    = _get_user_row(cursor, src_userid)
         if row is not None:
             src_balance = row[WalletNum.BALANCE.value]
             src_pending = row[WalletNum.PENDING.value]
             src_balance += amount
+            if (src_balance < 0.0):
+                src_balance = 0
             if not _update_balance(cursor, src_userid, src_balance):
                 await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
                 return
@@ -797,6 +822,20 @@ async def _cmd_admin_balance(client, message):
     disp_msg = totalb_src
     await _disp_rep_msg( client, message,'discord wallet','結果を表示します。',disp_msg )
     ################################
+    return
+
+# 自分のbalanceに値を加算する。
+# ,adminself 1000,0
+async def _cmd_version(client, message):
+    if not message.content.startswith(_CMD_STR_VERSION):
+        return
+    src_username = str(message.author)
+    src_userid   = str(message.author.id)
+    user_mention = str(message.author.mention)
+
+    dbg_print("{0} {1}:{2}".format(_CMD_STR_VERSION, message.author, message.content))
+
+    await client.send_message(message.channel, '```{0}```'.format(RELEASE_VERSION) )
     return
 
 ##########################################
@@ -965,6 +1004,19 @@ def _dump_all(cursor):
 # async def _dump_all_private(client, message, cursor):
 #     for row in cursor.execute("select * from " + REG_TABLENAME):
 #         await client.send_message(message.author,str(row))
+
+def _get_usermention2member(client, usermention):
+    found_member = None
+    # @<21839127398172937>とかできていることを想定する。
+    user_id = usermention.strip('@<>')
+    if False == user_id.isdigit():
+        return found_member
+    members = client.get_all_members()  # メンバ取得
+    for member in members:
+        if user_id == str(member.id):
+            found_member = member
+            break
+    return found_member
 
 # ユーザ名からmember Objを返す.
 def _get_user2member(client, username):
