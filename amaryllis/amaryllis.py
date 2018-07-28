@@ -4,6 +4,7 @@ import discord
 import private
 import welcome
 import myserver
+# import myserver_test as myserver
 import wallet
 import sys
 import os
@@ -60,7 +61,7 @@ async def on_message(message):
             elif message.channel.id == myserver.CH_ID_REGISTER:
                 await wallet.on_message_inner(client, message)
             # address
-            elif message.channel.id == myserver.CH_ID_ADDRESS:
+            elif message.channel.id == myserver.CH_ID_ADMIN:
                 await wallet.on_message_inner(client, message)
             # wallet
             elif message.channel.id == myserver.CH_ID_WALLET:
@@ -78,9 +79,17 @@ def daemonize():
         pid_file.close()
         sys.exit()
     if pid == 0:
-        client.run(myserver.TOKEN)
+        try:
+            client.run(myserver.TOKEN)
+        except:
+            pass
+        finally:
+            print("client stop")
+
 
 if __name__ == '__main__':
     while True:
         daemonize()
+    # # test
+    # client.run(myserver.TOKEN)
 
