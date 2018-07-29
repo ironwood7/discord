@@ -26,7 +26,7 @@ from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
 # 例：,tip seln#xxxx 3
 #
 # ,rain (amount)
-# オフラインではない人で、挿入金額が5XSEL未満の人にXSELを均等にプレゼント。
+# オフラインではない人で、XSELを均等にプレゼント。
 # 対象はdiscord walletです。
 #
 # -------------------------------------------------------
@@ -41,7 +41,21 @@ from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
 # ,withdraw (addr)(amount)
 # 「addr」に対して、「amount」XSELを送金します。
 # -------------------------------------------------------
-#
+#【要望対応】
+#・エラーメッセージをすべてメンション付きにしたい
+#・コマンド名は完全一致以外は無視
+#・BalanceのPendingメッセージの削除
+#・送金時の (391247317140897804)の削除
+#・残高表示は小数８桁まで
+#【その他対応】
+#・チャンネルをadmin / walletのみに変更
+#・内部計算すべてDecimalに変更
+#・rainの上限撤廃
+#・DBの数値REALをTEXTに変更（数値誤差回避のため）
+#・小数点は一律可とする
+#【課題】
+#・rich replyにアイコン設定
+#・rain対象をidle（退席中）に拡大するか。
 #
 #########################################################
 
@@ -52,8 +66,11 @@ WITHDRAW_AMOUNT_MIN   = "0.00000001"
 # TIP_AMOUNT_MAX        = "1000000.0"
 TIP_AMOUNT_MIN        = "0.00000001"
 # RAIN_AMOUNT_MAX       = "1000000.0"
-RAIN_AMOUNT_MIN       = "0.00000001"
-RELEASE_VERSION       = "Version:0.6"
+# RAIN_AMOUNT_MIN       = "0.00000001"
+# RAIN_AMOUNT_MIN       = "100.00000000"
+RAIN_AMOUNT_MIN       = "1.00000000"
+RAIN_ONE_AMOUNT_MIN   = "0.00000001"
+RELEASE_VERSION       = "Version:0.7"
 
 # 登録データ
 DBNAME        = 'discordwallet.db'
@@ -131,9 +148,8 @@ async def on_message_inner(client, message):
         await _cmd_admin_send(client, message, params)
         await _cmd_admin_self(client, message, params)
         await _cmd_admin_balance(client, message, params)
-        await _cmd_balance(client, message, params)
-        await _cmd_version(client, message, params)
         # other
+        await _cmd_balance(client, message, params)
         await _cmd_version(client, message, params)
     return
 
@@ -369,7 +385,7 @@ async def _cmd_tip(client, message, params):
     if amount < _round_down8(TIP_AMOUNT_MIN):
         await client.send_message(message.channel, "{0}様、amountのパラメータが下限を割っています。amount:{1} XSEL < {2:.8f} XSEL".format(user_mention, amount, _round_down8(TIP_AMOUNT_MIN)))
         return
-    print(_str_round_down8(amount))
+    # print(_str_round_down8(amount))
     # if amount > _round_down8(TIP_AMOUNT_MAX):
     #     await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1:.8f} XSEL > {2:.8f} XSEL".format(user_mention, amount, _round_down8(TIP_AMOUNT_MAX)))
     #     return
@@ -385,6 +401,11 @@ async def _cmd_tip(client, message, params):
     if to_userid == '':
         await client.send_message(message.channel, "{0}様、{1}という方は、おりません。".format(user_mention, to_user))
         # 対象ユーザがいないので終了
+        return
+
+    # 宛先が自分自身
+    if to_userid == src_userid:
+        await client.send_message(message.channel, "{0}様、宛先がご自身となっております。".format(user_mention))
         return
     # ----------------------------
     # DBから自分のアドレス探してbalance
@@ -487,10 +508,11 @@ async def _cmd_rain(client, message, params):
     members = client.get_all_members()
     for member in members:
         # オンライン & botではない & 自分ではない でフィルタ
-        # if (discord.Status.online == member.status or discord.Status.idle == member.status ) and (False == member.bot) and (src_userid != str(member.id)):
-        if (discord.Status.online == member.status ) and (False == member.bot) and (src_userid != str(member.id)):
+        # if (discord.Status.online == member.status ) and (False == member.bot) and (src_userid != str(member.id)):
+        # オフライン、インビジブル以外はOKとする。
+        if (discord.Status.offline != member.status and discord.Status.invisible != member.status ) and (False == member.bot) and (src_userid != str(member.id)):
             online_usersid.append(str(member.id))
-    # print(online_usersid)
+
     if len(online_usersid) <= 0:
         await client.send_message(message.channel, "{0}様、オンラインの方がいません。".format(user_mention))
         return
@@ -521,9 +543,10 @@ async def _cmd_rain(client, message, params):
     # 一人あたりの送金額
     send_amount = amount / _round_down8(send_user_count)
     # 0.00000001割ってたら送金しない
-    if send_amount < _round_down8(RAIN_AMOUNT_MIN):
+    if send_amount < _round_down8(RAIN_ONE_AMOUNT_MIN):
         await client.send_message(message.channel, "{0}様、残高が足りません。オンラインユーザ数:{1}, 一人あたりの送金:{2:.8f} XSEL".format(user_mention, send_user_count, send_amount))
         return
+    print(_str_round_down8(send_amount))
     # ------------------------
     # 確定したリストに対して送信
     # ------------------------
@@ -653,6 +676,10 @@ async def _cmd_withdraw(client, message, params):
 async def _cmd_deposit(client, message, params):
     if not params[0] == _CMD_STR_DEPOSIT:
         return
+
+    # Decimalの計算:float禁止
+    getcontext().traps[FloatOperation] = True
+
     dbg_print("{0} {1}:{2}".format(_CMD_STR_DEPOSIT, message.author, message.content))
     disp_msg=""
     await _disp_rep_msg( client, message,'','すみません。未対応です。m(_ _)m',disp_msg )
@@ -668,6 +695,10 @@ async def _cmd_deposit(client, message, params):
 async def _cmd_admin_send(client, message, params):
     if not params[0] == _CMD_STR_ADMIN_SEND:
         return
+
+    # Decimalの計算:float禁止
+    getcontext().traps[FloatOperation] = True
+
     src_user     = str(message.author)
     src_userid   = str(message.author.id)
     user_mention = str(message.author.mention)
@@ -730,6 +761,10 @@ async def _cmd_admin_send(client, message, params):
 async def _cmd_admin_self(client, message, params):
     if not params[0] == _CMD_STR_ADMIN_SELF:
         return
+
+    # Decimalの計算:float禁止
+    getcontext().traps[FloatOperation] = True
+
     src_username = str(message.author)
     src_userid   = str(message.author.id)
     user_mention = str(message.author.mention)
@@ -786,6 +821,10 @@ async def _cmd_admin_self(client, message, params):
 async def _cmd_admin_balance(client, message, params):
     if not params[0] == _CMD_STR_ADMIN_BALANCE:
         return
+
+    # Decimalの計算:float禁止
+    getcontext().traps[FloatOperation] = True
+
     src_user     = str(message.author)
     src_userid   = str(message.author.id)
     user_mention = str(message.author.mention)
@@ -1076,7 +1115,7 @@ def _round_down8(value):
 
 #デバッグ用
 def _str_round_down8(value):
-    return "{:.8f}".format(_round_down8(value))
+    return "{:.16f}".format(_round_down8(value))
 
 
 ##########################################
@@ -1088,6 +1127,16 @@ async def _disp_rep_msg( client, message, disp_name, disp_title, disp_msg ):
     msg = discord.Embed(title=disp_title, type="rich",description=disp_msg, colour=0x3498db)
     # TODO iconが挿入されないので後で確認
     msg.set_author(name=disp_name, icon_url=client.user.avatar_url)
+
+    # ---------------------------------------------------------
+    # selnのICONならこっち(seniのicon)
+    # user_info = await client.get_user_info(441218236227387407)
+    # msg.set_thumbnail(url=user_info.avatar_url)
+    # ---------------------------------------------------------
+    # 応答者のICONならこっち
+    msg.set_thumbnail(url=message.author.avatar_url)
+    # ---------------------------------------------------------
+    # msg.set_footer(text='###########')
     txt_msg = await client.send_message(message.channel, embed=msg)
     # await client.add_reaction(txt_msg,'👍')
 
