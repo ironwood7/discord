@@ -58,9 +58,6 @@ async def on_message(message):
                 await client.send_message(message.channel, CMD_ERROR_GETTOKEN)
                 return
             # << Provisional imp
-            # elif message.channel.id == myserver.CH_ID_REGISTER \
-            #     or message.channel.id == myserver.CH_ID_ADMIN \
-            #     or message.channel.id == myserver.CH_ID_WALLET:
             else:
                 await wallet.on_message_inner(client, message)
                 pass

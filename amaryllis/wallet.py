@@ -4,8 +4,9 @@ import myserver
 # import myserver_test as myserver
 from contextlib import closing
 from enum import Enum
+# from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
 from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
-
+# getcontext.precは、デフォルト28のまま
 
 # from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
 
@@ -48,16 +49,16 @@ cmd_admin_lst=["seni#6719", "ironwood#7205", "ysk-n#4046", "sunday#1914" ]
 # amount上限
 # WITHDRAW_AMOUNT_MAX   = 10000000.0
 WITHDRAW_AMOUNT_MIN   = "0.00000001"
-# TIP_AMOUNT_MAX        = "100000.0"
+# TIP_AMOUNT_MAX        = "1000000.0"
 TIP_AMOUNT_MIN        = "0.00000001"
-# RAIN_AMOUNT_MAX       = "100000.0"
+# RAIN_AMOUNT_MAX       = "1000000.0"
 RAIN_AMOUNT_MIN       = "0.00000001"
 RELEASE_VERSION       = "Version:0.6"
 
 # 登録データ
-DBNAME = 'discordwallet.db'
-REG_TABLENAME= 'wallet'
-MAX_RECORD = 10000000
+DBNAME        = 'discordwallet.db'
+REG_TABLENAME = 'wallet'
+MAX_RECORD    = 10000000
 
 
 INIT_REG_BALANCE = "100.0"
@@ -112,19 +113,16 @@ async def on_message_inner(client, message):
         await _cmd_tip(client, message, params)
     elif (_CMD_STR_RAIN == params[0]):
         await _cmd_rain(client, message, params)
-    elif message.channel.id == myserver.CH_ID_REGISTER:
+    elif message.channel.id == myserver.CH_ID_WALLET:
         # 登録
         await _cmd_register(client, message, params)
-    elif message.channel.id == myserver.CH_ID_WALLET:
         # WALLET
-        await _cmd_address(client, message, params)
         await _cmd_balance(client, message, params)
-        # 未実装
+        #   未実装
+        await _cmd_address(client, message, params)
         await _cmd_info(client, message, params)
         await _cmd_withdraw(client, message, params)
         await _cmd_deposit(client, message, params)
-        # other
-        await _cmd_version(client, message, params)
     elif message.channel.id == myserver.CH_ID_ADMIN:
         # ADMIN
         await _cmd_dump(client, message, params)
@@ -134,6 +132,8 @@ async def on_message_inner(client, message):
         await _cmd_admin_self(client, message, params)
         await _cmd_admin_balance(client, message, params)
         await _cmd_balance(client, message, params)
+        await _cmd_version(client, message, params)
+        # other
         await _cmd_version(client, message, params)
     return
 
@@ -236,6 +236,12 @@ async def _cmd_info(client, message, params):
     if not params[0] == _CMD_STR_INFO:
         return
     dbg_print("{0} {1}:{2}".format(_CMD_STR_INFO, message.author, message.content))
+    ####################################################################################
+    # TODO 未実装メッセージ
+    disp_msg=""
+    await _disp_rep_msg( client, message,'','すみません。未対応です。m(_ _)m',disp_msg )
+    return
+    ####################################################################################
     ################################
     # TODO 現在のXSELの価格を表示します。selndに問い合わせ
     ################################
@@ -351,7 +357,7 @@ async def _cmd_tip(client, message, params):
         return
     amount = _round_down8("0.0")
     try:
-        print(params[1])
+        # print(params[1])
         to_user = params[1]
         amount  = _round_down8((params[2]))
     except:
@@ -363,6 +369,7 @@ async def _cmd_tip(client, message, params):
     if amount < _round_down8(TIP_AMOUNT_MIN):
         await client.send_message(message.channel, "{0}様、amountのパラメータが下限を割っています。amount:{1} XSEL < {2:.8f} XSEL".format(user_mention, amount, _round_down8(TIP_AMOUNT_MIN)))
         return
+    print(_str_round_down8(amount))
     # if amount > _round_down8(TIP_AMOUNT_MAX):
     #     await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1:.8f} XSEL > {2:.8f} XSEL".format(user_mention, amount, _round_down8(TIP_AMOUNT_MAX)))
     #     return
@@ -480,8 +487,8 @@ async def _cmd_rain(client, message, params):
     members = client.get_all_members()
     for member in members:
         # オンライン & botではない & 自分ではない でフィルタ
-        print(str(member) + "####"+ str(member.status))
-        if (discord.Status.online == member.status or discord.Status.idle == member.status ) and (False == member.bot) and (src_userid != str(member.id)):
+        # if (discord.Status.online == member.status or discord.Status.idle == member.status ) and (False == member.bot) and (src_userid != str(member.id)):
+        if (discord.Status.online == member.status ) and (False == member.bot) and (src_userid != str(member.id)):
             online_usersid.append(str(member.id))
     # print(online_usersid)
     if len(online_usersid) <= 0:
@@ -513,7 +520,8 @@ async def _cmd_rain(client, message, params):
     total_amount = amount
     # 一人あたりの送金額
     send_amount = amount / _round_down8(send_user_count)
-    if send_amount <= _round_down8("0.0"):
+    # 0.00000001割ってたら送金しない
+    if send_amount < _round_down8(RAIN_AMOUNT_MIN):
         await client.send_message(message.channel, "{0}様、残高が足りません。オンラインユーザ数:{1}, 一人あたりの送金:{2:.8f} XSEL".format(user_mention, send_user_count, send_amount))
         return
     # ------------------------
@@ -594,6 +602,7 @@ async def _cmd_withdraw(client, message, params):
     # ユーザからsrcaddressを取得する。
     userid = str(message.author.id)
     username = str(message.author)
+    dst_addr = ""
     src_addr = ""
     if (len(params) != 3):
         await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user_mention))
@@ -601,7 +610,8 @@ async def _cmd_withdraw(client, message, params):
     if False == params[2].isdigit():
         await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, params[2]))
         return
-    amount = 0
+    amount   = 0
+    dst_addr = params[1]
     try:
         amount   = _round_down8(params[2])
     except:
@@ -626,11 +636,11 @@ async def _cmd_withdraw(client, message, params):
     ################################
     # TODO ここでRPCにて送金依頼
     ################################
-    # src_addr,amount
+    # src_addr,dst_addr,amount
 
     ################################
     wd_user = "**所有者**\r\n{0} 様  \r\n".format(usermention)
-    wd_src  = "**送金先**\r\n{0}     \r\n".format(src_addr)
+    wd_src  = "**送金先**\r\n{0}     \r\n".format(dst_addr)
     wd_am   = "**送金額**\r\n{0:.8f} XSEL\r\n".format(amount)
     disp_msg = wd_user +wd_src +wd_dst +wd_am
     await _disp_rep_msg( client, message,'送金(withdraw)','以下のように送金しました。',disp_msg )
@@ -707,7 +717,7 @@ async def _cmd_admin_send(client, message, params):
     ################################
     # 残高表示
     ################################
-    bl_user     = "**所有者**\r\n{0} 様\r\n".format(dst_username)
+    bl_user     = "**所有者**\r\n<@{0}> 様\r\n".format(dst_userid)
     bl_balance  = "**残高**\r\n{0:.8f} XSEL\r\n".format(dst_balance)
     # bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(dst_pending)
     disp_msg = bl_user +bl_balance
@@ -761,7 +771,7 @@ async def _cmd_admin_self(client, message, params):
     ################################
     # ADMIN 残高表示
     ################################
-    bl_user     = "**所有者**\r\n{0} 様\r\n".format(src_username)
+    bl_user     = "**所有者**\r\n{0} 様\r\n".format(user_mention)
     bl_balance  = "**残高**\r\n{0:.8f} XSEL   \r\n".format(src_balance)
     # bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(src_pending)
     # disp_msg = bl_user +bl_balance + bl_pending
@@ -852,6 +862,12 @@ async def _cmd_dbg_cmd(client, message, params):
             online_users = list(filter(lambda x: (x.bot == False) and (x.status == discord.Status.online), members))
             # # Member obj->mapでmember名->list->str->send
             await client.send_message(send_ch, str(list(map(str,online_users))))
+        elif "idle" == str(params[2]):
+            members = client.get_all_members()
+            # # onlineユーザ取得
+            online_users = list(filter(lambda x: (x.bot == False) and (x.status == discord.Status.idle), members))
+            # # Member obj->mapでmember名->list->str->send
+            await client.send_message(send_ch, str(list(map(str,online_users))))
         elif "all" == str(params[2]):
             members = client.get_all_members()
             # allユーザ(botのみ除く)
@@ -885,10 +901,8 @@ def _create_table():
         # address : selnアドレス : しばらくはdummyアドレス
         # balance : 残高
         # pending : 仮
-        # create_table = 'create table if not exists ' \
-        #     + REG_TABLENAME + ' (id varchar(32), username varchar(64), address varchar(64), balance real, pending real)'
         create_table = 'create table if not exists ' \
-            + REG_TABLENAME + ' (id varchar(32), username varchar(64), address varchar(64), balance numeric, pending numeric)'
+            + REG_TABLENAME + ' (id varchar(32), username varchar(64), address varchar(64), balance text, pending text)'
         print(create_table)
         cursor.execute(create_table)
         connection.commit()
@@ -1056,7 +1070,8 @@ def _is_admin_user(user):
 ##########################################
 
 def _round_down8(value):
-    value = Decimal(value).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
+    # value = Decimal(value).quantize(Decimal('0.00000001'), rounding=ROUND_DOWN)
+    value = Decimal(value).quantize(Decimal('0.00000000'), rounding=ROUND_DOWN)
     return value
 
 #デバッグ用
