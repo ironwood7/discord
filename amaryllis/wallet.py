@@ -667,7 +667,7 @@ async def _cmd_withdraw(client, message, params):
 
     ################################
     wd_dst  = "**address**\r\n{0}\r\n".format(dst_addr)
-    wd_am   = "**ammount**\r\n{0:.8f} XSEL\r\n".format(amount)
+    wd_am   = "**amount**\r\n{0:.8f} XSEL\r\n".format(amount)
     wd_tran   = "**transaction**\r\n{0}\r\n".format(transaction)
     disp_msg = wd_dst + wd_am + wd_tran
     await _disp_rep_msg( client, message, username, 'withdraw',disp_msg )

@@ -139,7 +139,7 @@ class BaseProxy(object):
                 elif platform.system() == 'Windows':
                     btc_conf_file = os.path.join(os.environ['APPDATA'], 'Seln')
                 else:
-                    btc_conf_file = os.path.expanduser('~/.bitcoin')
+                    btc_conf_file = os.path.expanduser('~/.seln')
                 btc_conf_file = os.path.join(btc_conf_file, 'seln.conf')
 
             # Bitcoin Core accepts empty rpcuser, not specified in btc_conf_file
@@ -163,8 +163,7 @@ class BaseProxy(object):
             if service_port is None:
                 service_port = 51280
             conf['rpcport'] = int(conf.get('rpcport', service_port))
-#            conf['rpchost'] = conf.get('rpcconnect', 'localhost')
-            conf['rpchost'] = conf.get('rpcconnect', '104.156.239.100')
+            conf['rpchost'] = conf.get('rpcconnect', 'localhost')
 
             service_url = ('%s://%s:%d' %
                 ('http', conf['rpchost'], conf['rpcport']))
