@@ -6,6 +6,11 @@ from contextlib import closing
 from enum import Enum
 # from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
 from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
+from datetime import datetime
+import logging.config
+import bitcoin
+from bitcoin.rpc import Proxy
+
 # getcontext.precは、デフォルト28のまま
 
 # from bitcoinrpc.authproxy import AuthServiceProxy, JSONRPCException
@@ -14,7 +19,7 @@ from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
 # ,register
 # discord ウォレットを作成する。
 #
-# ,address
+# ,deposit
 # ウォレットアドレスを確認する。
 #
 # ,balance
@@ -59,18 +64,18 @@ from decimal import Decimal, getcontext, ROUND_DOWN, FloatOperation
 #
 #########################################################
 
-cmd_admin_lst=["seni#6719", "ironwood#7205", "ysk-n#4046", "sunday#1914" ]
+cmd_admin_lst=["seni#6719", "ironwood#7205", "ysk-n#4046", "sunday#1914"]
 # amount上限
-# WITHDRAW_AMOUNT_MAX   = 10000000.0
 WITHDRAW_AMOUNT_MIN   = "0.00000001"
-# TIP_AMOUNT_MAX        = "1000000.0"
 TIP_AMOUNT_MIN        = "0.00000001"
-# RAIN_AMOUNT_MAX       = "1000000.0"
-# RAIN_AMOUNT_MIN       = "0.00000001"
-# RAIN_AMOUNT_MIN       = "100.00000000"
 RAIN_AMOUNT_MIN       = "1.00000000"
 RAIN_ONE_AMOUNT_MIN   = "0.00000001"
 RELEASE_VERSION       = "Version:0.7"
+
+# 手数料
+TRANSACTION_FEE = "0.001"
+
+COIN = 100000000
 
 # 登録データ
 DBNAME        = 'discordwallet.db'
@@ -78,14 +83,14 @@ REG_TABLENAME = 'wallet'
 MAX_RECORD    = 10000000
 
 
-INIT_REG_BALANCE = "100.0"
+INIT_REG_BALANCE = "0"
 # ダミーのアドレス(本当のアドレスはSから. tは仮)
 # 後で本物のアドレスに入れ替える用
-INIT_ADDR_DUMMY  = 'txxxxxxxxxxxxxxxxxxxxxxxxxx'
+INIT_ADDR_DUMMY  = 'not create'
 
 # command string
 _CMD_STR_REGISTER      = ",register"
-_CMD_STR_ADDRESS       = ",address"
+_CMD_STR_DEPOSIT       = ",deposit"
 _CMD_STR_BALANCE       = ",balance"
 _CMD_STR_TIP           = ",tip"
 _CMD_STR_RAIN          = ",rain"
@@ -100,17 +105,16 @@ _CMD_STR_ADMIN_BALANCE = ",adminbalance"
 # dbg
 _CMD_STR_DUMP          = ",dump"
 _CMD_STR_DBG_CMD       = ",dbg"
-_CMD_STR_TEST_REGISTER = ",testregister"
 
-# class WalletInfo():
-#     def __init__(self, userid='', user_name='', address='', balance=0.0, pending=0.0):
-#         self.userid    = userid
-#         self.user_name = user_name
-#         self.address   = address
-#         self.balance   = balance
-#         self.pending   = pending
-    
-    #TODO 後で計算処理を追加
+COLUMN_AUTONUM = 'no'
+COLUMN_ID = 'id'
+COLUMN_USER = 'username'
+COLUMN_ADDRESS = 'address'
+COLUMN_BALANCE = 'balance'
+COLUMN_PENDING = 'pending'
+COLUMN_LASTUPDATE = 'lastupdate'
+
+logger = logging.getLogger()
 
 # db table 要素の番号
 class WalletNum(Enum):
@@ -119,9 +123,14 @@ class WalletNum(Enum):
     ADDR    = 2
     BALANCE = 3
     PENDING = 4
+    LASTUPDATE = 5
 
 def on_ready():
     _create_table()
+    logging.config.fileConfig('walletlogging.conf')
+    bitcoin.SelectParams("mainnet")
+    # Decimalの計算:float禁止
+    getcontext().traps[FloatOperation] = True
 
 async def on_message_inner(client, message):
     params = message.content.split()
@@ -135,16 +144,14 @@ async def on_message_inner(client, message):
         await _cmd_register(client, message, params)
         # WALLET
         await _cmd_balance(client, message, params)
-        #   未実装
-        await _cmd_address(client, message, params)
-        await _cmd_info(client, message, params)
         await _cmd_withdraw(client, message, params)
+        #   未実装
+        await _cmd_info(client, message, params)
         await _cmd_deposit(client, message, params)
     elif message.channel.id == myserver.CH_ID_ADMIN:
         # ADMIN
         await _cmd_dump(client, message, params)
         await _cmd_dbg_cmd(client, message, params)
-        await _cmd_test_register(client, message, params)
         await _cmd_admin_send(client, message, params)
         await _cmd_admin_self(client, message, params)
         await _cmd_admin_balance(client, message, params)
@@ -162,13 +169,14 @@ async def on_message_inner(client, message):
 async def _cmd_register(client, message, params):
     if not params[0] == _CMD_STR_REGISTER:
         return
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_REGISTER, message.author, message.content))
     userid       = str(message.author.id)
     user_name    = str(message.author)
     user_mention = message.author.mention
 
+    logger.debug("register id={0} name={1}".format(userid, user_name))
+
     if (len(params) >= 2):
-        await client.send_message(message.channel, "{0}様、申し訳ございません。いらない引数があります。".format(user_mention))
+        await client.send_message(message.channel, "{0}！なにか間違っているわ！".format(user_mention))
         return
 
     accept = False
@@ -185,17 +193,18 @@ async def _cmd_register(client, message, params):
             if check_user != user_name:
                 # ユーザが存在するが現在と名称が異なる場合、ユーザ名を更新する。
                 if not _update_username(cursor, userid, user_name):
-                    await client.send_message(message.channel, "{0}様、もう登録されておりますよ。".format(user_mention))
+                    await client.send_message(message.channel, "{0}！すでに登録ずみよ！".format(user_mention))
                     return
                 else:
                     connection.commit()
-            await client.send_message(message.channel, "{0}様、もう登録されておりますよ。".format(user_mention))
+            await client.send_message(message.channel, "{0}！すでに登録ずみよ！".format(user_mention))
             return
         else:
             pass # ユーザが登録されていない.
 
         if count[0] > MAX_RECORD:
-            await client.send_message(message.channel, "{0}様、もう業務時間終了致しました。".format(user_mention))
+            await client.send_message(message.channel, "{0}！すこし疲れたわね".format(user_mention))
+            logger.warning("Over limit of user count.")
             return
     #################################
     # 初期情報
@@ -211,22 +220,10 @@ async def _cmd_register(client, message, params):
         update = _insert_user(cursor, userid, user_name, address, balance, pending)
         connection.commit()
         if _is_exists_record(cursor, userid, user_name, address, balance, pending):
-            if not update:
-                await client.send_message(message.channel, "{0}様、お受付いたしました".format(user_mention))
-            else:
-                await client.send_message(message.channel, "{0}様、前のアドレスを喪失してしまいました。".format(user_mention))
-            # OK
-            accept = True
+            await client.send_message(message.channel, "{0}！できたわよ！".format(user_mention))
         else:
             # NG
-            await client.send_message(message.channel, "{0}さま、なんか失敗しました。".format(user_mention))
-    if accept:
-        ################################
-        rg_user  = "**所有者**\r\n{0} 様\r\n".format(user_mention)
-        rg_src   = "**アドレス**\r\n{0}   \r\n".format(address)
-        disp_msg = rg_user +rg_src
-        await _disp_rep_msg( client, message,'登録情報','',disp_msg )
-        ################################
+            await client.send_message(message.channel, "{0}！失敗したわ！運営を訪ねなさい！".format(user_mention))
     return
 
 # ,dump デバッグコマンド。printするだけ
@@ -251,11 +248,10 @@ async def _cmd_dump(client, message, params):
 async def _cmd_info(client, message, params):
     if not params[0] == _CMD_STR_INFO:
         return
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_INFO, message.author, message.content))
     ####################################################################################
     # TODO 未実装メッセージ
     disp_msg=""
-    await _disp_rep_msg( client, message,'','すみません。未対応です。m(_ _)m',disp_msg )
+    await _disp_rep_msg( client, message,'','知らないわ！',disp_msg )
     return
     ####################################################################################
     ################################
@@ -269,12 +265,19 @@ async def _cmd_info(client, message, params):
     ################################
     return
 
-# ,address
+# ,deposit
 # ウォレットアドレスを確認する。
-async def _cmd_address(client, message, params):
-    if not params[0] == _CMD_STR_ADDRESS:
+async def _cmd_deposit(client, message, params):
+    if not params[0] == _CMD_STR_DEPOSIT:
         return
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_ADDRESS, message.author, message.content))
+
+    ####################################################################################
+    # TODO 未実装メッセージ
+    disp_msg=""
+    await _disp_rep_msg( client, message,'','知らないわ！',disp_msg )
+    return
+    ####################################################################################
+
     username     = str(message.author)
     userid       = str(message.author.id)
     user_mention = message.author.mention
@@ -309,7 +312,6 @@ async def _cmd_balance(client, message, params):
     # ウォレットの残高を確認します。
     if not params[0] == _CMD_STR_BALANCE:
         return
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_BALANCE, message.author, message.content))
     # userからaddressを取得する。
     userid       = str(message.author.id)
     username     = str(message.author)
@@ -317,7 +319,7 @@ async def _cmd_balance(client, message, params):
 
     src_addr = ""
     if (len(params) > 1):
-        await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが余計です。".format(user_mention))
+        await client.send_message(message.channel, "{0}！間違っているわよ！".format(user_mention))
         return
 
     src_balance = _round_down8("0.0")
@@ -331,18 +333,17 @@ async def _cmd_balance(client, message, params):
             src_balance = _round_down8(str(row[WalletNum.BALANCE.value]))
             src_pending = _round_down8(str(row[WalletNum.PENDING.value]))
         else:
-            await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
+            await client.send_message(message.channel, "{0}！あなたなんて知らないわ！".format(user_mention))
             return
 
     ################################
     # 残高表示
     ################################
-    bl_user     = "**所有者**\r\n{0} 様\r\n".format(user_mention)
-    bl_balance  = "**残高**\r\n{0:.8f} XSEL\r\n".format(src_balance)
+    bl_balance  = "**Balance**\r\n{0:.8f} XSEL\r\n".format(src_balance)
     # bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(src_pending)
     # disp_msg = bl_user +bl_balance + bl_pending
-    disp_msg = bl_user +bl_balance
-    await _disp_rep_msg( client, message,'残高(BALANCE)','残高です。',disp_msg )
+    disp_msg = bl_balance
+    await _disp_rep_msg( client, message, username, "" , disp_msg )
     ################################
     return
 
@@ -353,12 +354,9 @@ async def _cmd_balance(client, message, params):
 async def _cmd_tip(client, message, params):
     if not params[0] == _CMD_STR_TIP:
         return
-    # Decimalの計算:float禁止
-    getcontext().traps[FloatOperation] = True
 
     # 「to」に対して、「amount」XSELを渡します。 toには、discordの名前を指定してください。
     # 例：,tip seln#xxxx 3
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_TIP, message.author, message.content))
     # 引数からdstaddressを取得する。
     # ユーザからsrcaddressを取得する。
     username     = str(message.author)
@@ -369,7 +367,7 @@ async def _cmd_tip(client, message, params):
     src_addr = ""
     dst_addr = ""
     if (len(params) != 3):
-        await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user_mention))
+        await client.send_message(message.channel, "{0}！間違っているわ！".format(user_mention))
         return
     amount = _round_down8("0.0")
     try:
@@ -378,34 +376,29 @@ async def _cmd_tip(client, message, params):
         amount  = _round_down8((params[2]))
     except:
         # exceptionで戻る
-        await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, params[2]))
+        await client.send_message(message.channel, "{0}！amount:{1}が間違ってるわ！".format(user_mention, params[2]))
         return
 
     # amount制限
     if amount < _round_down8(TIP_AMOUNT_MIN):
-        await client.send_message(message.channel, "{0}様、amountのパラメータが下限を割っています。amount:{1} XSEL < {2:.8f} XSEL".format(user_mention, amount, _round_down8(TIP_AMOUNT_MIN)))
+        await client.send_message(message.channel, "{0}！amount:{1}が間違ってるわ！".format(user_mention, params[2]))
         return
-    # print(_str_round_down8(amount))
-    # if amount > _round_down8(TIP_AMOUNT_MAX):
-    #     await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1:.8f} XSEL > {2:.8f} XSEL".format(user_mention, amount, _round_down8(TIP_AMOUNT_MAX)))
-    #     return
-    # ----------------------------
     # 相手のアドレス探しておく
     to_userid=''
     # member = _get_user2member(client, to_user)  # メンバ取得
     member = _get_usermention2member(client, to_user)  # メンバ取得
     if member is not None:
-        if False == member.bot:
+        if not member.bot:
             to_userid = member.id
     # なかったら抜ける。
     if to_userid == '':
-        await client.send_message(message.channel, "{0}様、{1}という方は、おりません。".format(user_mention, to_user))
+        await client.send_message(message.channel, "{0}！{1}なんて知らないわ！".format(user_mention, to_user))
         # 対象ユーザがいないので終了
         return
 
     # 宛先が自分自身
     if to_userid == src_userid:
-        await client.send_message(message.channel, "{0}様、宛先がご自身となっております。".format(user_mention))
+        await client.send_message(message.channel, "{0}！！怒るわよ！".format(user_mention))
         return
     # ----------------------------
     # DBから自分のアドレス探してbalance
@@ -417,40 +410,43 @@ async def _cmd_tip(client, message, params):
         if row is not None:
             src_balance = _round_down8(str(row[WalletNum.BALANCE.value]))
         else:
-            await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
+            await client.send_message(message.channel, "{0}！あなたなんて知らないわ！".format(user_mention))
             return
         if src_balance < amount: # 残高がamountより下だったらエラー
-            await client.send_message(message.channel, "{0}様、残高が足りません。balance:{1:.8f} XSEL / amount:{2:.8f} XSEL".format(user_mention, src_balance, amount))
+            await client.send_message(message.channel, "{0}！XSELが足りないわよ！balance:{1:.8f} XSEL / amount:{2:.8f} XSEL".format(user_mention, src_balance, amount))
             return
 
         # 残高からamount分引いて更新
-        src_balance = src_balance - amount
-        if not _update_balance(cursor, src_userid, src_balance):
-            await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
+        
+        src_after_balance = src_balance - amount
+        if not _update_balance(cursor, src_userid, src_after_balance):
+            await client.send_message(message.channel, "{0}！失敗したわね！！".format(user_mention))
             return
 
-        # TODO ユーザを探す
+        logger.info("tip from id={0} name={1} before={2} send={3} after={4}".format(src_userid, username, src_balance, amount, src_after_balance))
+
         row = _get_user_row(cursor, to_userid)
         if row is not None:
             # 発見
             dst_balance = _round_down8(str(row[WalletNum.BALANCE.value]))
         else:
-            await client.send_message(message.channel, "{0}様、TO:{1}様のアドレスは登録されていないようです。".format(user_mention, to_user))
+            await client.send_message(message.channel, "{0}！{1}なんて知らないわ！".format(user_mention, to_user))
             return
         # balanceに加算
-        dst_balance = dst_balance + amount
-        if not _update_balance(cursor, to_userid, dst_balance):
-            await client.send_message(message.channel, "{0}様、{1}様の残高が更新できませんでした。".format(user_mention, to_user))
+        dst_after_balance = dst_balance + amount
+        if not _update_balance(cursor, to_userid, dst_after_balance):
+            await client.send_message(message.channel, "{0}！失敗したわね！！".format(user_mention))
             return
+
+        logger.info("tip to id={0} name={1} before={2} receive={3} after={4}".format(to_userid, member.nick, dst_balance, amount, dst_after_balance))
+
         connection.commit()
     ################################
     # tip_user = "**送金者**\r\n{0} 様\r\n".format(username)
-    tip_user = "**送金者**\r\n{0} 様\r\n".format(user_mention)
-    tip_dst  = "**送金先**\r\n{0} 様\r\n".format(member.mention, to_userid)
-    tip_am   = "**送金額**\r\n{0:.8f} XSEL\r\n".format(amount)
-    tip_bl   = "**残高**\r\n{0:.8f} XSEL\r\n".format(src_balance)
-    disp_msg = tip_user +tip_dst +tip_am +tip_bl
-    await _disp_rep_msg( client, message,'送金(tip)','以下のように送金いたしました。',disp_msg )
+    tip_dst  = "**to**\r\n{0}\r\n".format(member.mention)
+    tip_am   = "**Amount**\r\n{0:.8f} XSEL\r\n".format(amount)
+    disp_msg = tip_dst +tip_am
+    await _disp_rep_msg( client, message, username, 'Tip', disp_msg )
     ################################
     return
 
@@ -459,10 +455,7 @@ async def _cmd_tip(client, message, params):
 async def _cmd_rain(client, message, params):
     if not params[0] == _CMD_STR_RAIN:
         return
-    # Decimalの計算:float禁止
-    getcontext().traps[FloatOperation] = True
 
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_RAIN, message.author, message.content))
     # 引数からdstaddressを取得する。
     # ユーザからsrcaddressを取得する。
     user         = str(message.author)
@@ -470,18 +463,18 @@ async def _cmd_rain(client, message, params):
     user_mention = message.author.mention
 
     if (len(params) != 2):
-        await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user_mention))
+        await client.send_message(message.channel, "{0}！間違っているわよ！".format(user_mention))
         return
     amount = _round_down8("0.0")
     try:
         amount  = _round_down8(params[1])
     except:
         # exceptionで戻る
-        await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, params[1]))
+        await client.send_message(message.channel, "{0}！送金額:{1}が間違っているわよ！".format(user_mention, params[1]))
         return
     # amount制限
     if amount < _round_down8(RAIN_AMOUNT_MIN):
-        await client.send_message(message.channel, "{0}様、amountのパラメータが下限を割っています。amount:{1} XSEL < {2:.8f} XSEL".format(user_mention, amount,  _round_down8(RAIN_AMOUNT_MIN)))
+        await client.send_message(message.channel, "{0}！rainは {1:.8f} XSEL以上にしなさい！".format(user_mention, _round_down8(RAIN_AMOUNT_MIN)))
         return
     # if amount > _round_down8(RAIN_AMOUNT_MAX):
     #     await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1:.8f} XSEL > {2:.8f} XSEL".format(user_mention, amount, _round_down8(RAIN_AMOUNT_MAX)))
@@ -495,11 +488,11 @@ async def _cmd_rain(client, message, params):
         if row is not None:
             src_balance = _round_down8(str(row[WalletNum.BALANCE.value]))
         else:
-            await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
+            await client.send_message(message.channel, "{0}！あなたなんて知らないわ！".format(user_mention))
             return
 
     if src_balance < amount: # 残高がamountより下だったらエラー
-        await client.send_message(message.channel, "{0}様、残高が足りません。balance:{1:.8f} XSEL / amount:{2:.8f} XSEL".format(user_mention, src_balance, amount))
+        await client.send_message(message.channel, "{0}！XSELが足りないようね！balance:{1:.8f} XSEL / amount:{2:.8f} XSEL".format(user_mention, src_balance, amount))
         return
     # ----------------------------
     # onlineユーザを取得
@@ -514,39 +507,36 @@ async def _cmd_rain(client, message, params):
             online_usersid.append(str(member.id))
 
     if len(online_usersid) <= 0:
-        await client.send_message(message.channel, "{0}様、オンラインの方がいません。".format(user_mention))
+        await client.send_message(message.channel, "{0}！誰もいないわね！".format(user_mention))
         return
     # ------------------------
     # checkRainAmount
     # ------------------------
     # online_usersidからdbのリストを取得
-    dst_user_addrs=[]
+    receiver_user_ids=[]
     with closing(sqlite3.connect(DBNAME)) as connection:
         cursor = connection.cursor()
         for dst_userid in online_usersid:
             row = _get_user_row(cursor, dst_userid)
             if row is not None:
-                dst_user_addrs.append(dst_userid)
+                receiver_user_ids.append(dst_userid)
 
     # 対象ユーザが０であるか？
-    send_user_count = len(dst_user_addrs)
-    print(send_user_count)
-    if send_user_count <= 0:
-        await client.send_message(message.channel, "{0}様、対象の方がいません。".format(user_mention))
+    receiver_user_count = len(receiver_user_ids)
+    if receiver_user_count <= 0:
+        await client.send_message(message.channel, "{0}！誰もいないわね！".format(user_mention))
         return
 
     # ------------------------
     # RainAmount計算
     # ------------------------
-    # rain_amount = amount * float(send_user_count)
-    total_amount = amount
     # 一人あたりの送金額
-    send_amount = amount / _round_down8(send_user_count)
+    send_amount = _round_down8(amount / receiver_user_count)
     # 0.00000001割ってたら送金しない
     if send_amount < _round_down8(RAIN_ONE_AMOUNT_MIN):
-        await client.send_message(message.channel, "{0}様、残高が足りません。オンラインユーザ数:{1}, 一人あたりの送金:{2:.8f} XSEL".format(user_mention, send_user_count, send_amount))
+        await client.send_message(message.channel, "{0}！XSELが足りないわね！（オンラインユーザ数:{1}, 一人あたりの送金:{2:.8f} XSEL）".format(user_mention, send_user_count, send_amount))
         return
-    print(_str_round_down8(send_amount))
+    total_amount = send_amount * receiver_user_count
     # ------------------------
     # 確定したリストに対して送信
     # ------------------------
@@ -557,13 +547,13 @@ async def _cmd_rain(client, message, params):
         cursor = connection.cursor()
         # ---------------------------------------
         # 残高からRainAmount分引いて更新
-        src_balance = src_balance - total_amount
-        if not _update_balance(cursor, src_userid, src_balance):
-            await client.send_message(message.channel, "{0}様、残高が更新できませんでした。".format(user_mention))
+        src_after_balance = src_balance - total_amount
+        if not _update_balance(cursor, src_userid, src_after_balance):
+            await client.send_message(message.channel, "{0}！失敗したわ！".format(user_mention))
             return
         # まだ閉じない
         # ---------------------------------------
-        for dst_userid in online_usersid:
+        for dst_userid in receiver_user_ids:
             dst_balance = _round_down8("0.0")
             dst_username = ''
             row = _get_user_row(cursor, dst_userid)
@@ -572,39 +562,33 @@ async def _cmd_rain(client, message, params):
                 dst_username = row[WalletNum.USER.value]
             else:
                 # 確実に存在するはずなのでここに来たらDBが壊れている。
-                await client.send_message(message.channel, "{0}様、{1}という方は登録されていないようです。".format(user_mention, dst_username))
+                await client.send_message(message.channel, "{0}！なにかがおかしいわ！".format(user_mention))
                 return
             # 量以上に配布していないかをチェック
             if total_sent >= total_amount:
-                await client.send_message(message.channel, "{0}様、見込みより多く送金しているため取りやめました。sent:{1:.8f} / send:{2:.8f}".format(user_mention, total_sent, total_amount))
+                await client.send_message(message.channel, "{0}！バグってるわね！！（sent:{1:.8f} / send:{2:.8f}）".format(user_mention, total_sent, total_amount))
                 return
             # ---------------------------------------
             # balanceに加算
             total_sent += send_amount
             dst_balance = dst_balance + send_amount
             if not _update_balance(cursor, dst_userid, dst_balance):
-                await client.send_message(message.channel, "{0}様、{1}様の残高が更新できませんでした。".format(user_mention, dst_username))
+                await client.send_message(message.channel, "{0}！失敗したわね！！".format(user_mention))
                 return
             sent_count += 1
         connection.commit()
 
+    logger.info("rain from id={0} name={1} before={2} rain={3} after={4}".format(src_userid, user, src_balance, amount, src_after_balance))
+
     ################################
-    ra_user  = "**所有者**\r\n{0} 様  \r\n".format(user_mention)
-    ra_sent  = "**送金数**\r\n{0}     \r\n".format(sent_count)
-    ra_total = "**総送金額**\r\n{0:.8f} XSEL\r\n".format(total_sent)
-    ra_am    = "**一人あたりの送金料**\r\n{0:.8f} XSEL\r\n".format(send_amount)
-    disp_msg = ra_user +ra_sent +ra_total +ra_am
-    await _disp_rep_msg( client, message,'送金(rain)','以下のように送金しました。',disp_msg )
+    ra_sent  = "**Receiver count**\r\n{0}\r\n".format(sent_count)
+    ra_total = "**Rain Amount**\r\n{0:.8f} XSEL\r\n".format(total_sent)
+    ra_am    = "**Amount / Receiver**\r\n{0:.8f} XSEL\r\n".format(send_amount)
+    disp_msg = ra_sent +ra_total +ra_am
+    await _disp_rep_msg( client, message, user, 'Rain', disp_msg )
     ################################
     return
 
-####################################################################################
-# 未対応、未実装        withdraw, info, deposit
-####################################################################################
-
-# ,deposit addr (amount)    TODO アドレスいる？自分のならいらない
-# ウォレットからdiscord walletに送金します。
-# ウォレットにXSELを入れるには、このアドレスに送金してください。
 async def _cmd_withdraw(client, message, params):
     # 「addr」に対して、「amount」XSELを送金します。
     if not params[0] == _CMD_STR_WITHDRAW:
@@ -612,38 +596,37 @@ async def _cmd_withdraw(client, message, params):
     # Decimalの計算:float禁止
     getcontext().traps[FloatOperation] = True
 
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_WITHDRAW, message.author, message.content))
-
-    ####################################################################################
-    # TODO 未実装メッセージ
-    disp_msg=""
-    await _disp_rep_msg( client, message,'','すみません。未対応です。m(_ _)m',disp_msg )
-    return
-    ####################################################################################
-
     # 引数からdstaddressを取得する。
     # ユーザからsrcaddressを取得する。
     userid = str(message.author.id)
     username = str(message.author)
+    user_mention = message.author.mention
     dst_addr = ""
     src_addr = ""
     if (len(params) != 3):
-        await client.send_message(message.channel, "{0}様、申し訳ございません。パラメータが間違えています。".format(user_mention))
+        await client.send_message(message.channel, "{0}！書き方がおかしいわね！".format(user_mention))
         return
-    if False == params[2].isdigit():
-        await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, params[2]))
-        return
+
     amount   = 0
     dst_addr = params[1]
+
+    if (not dst_addr.startswith("S")):
+        await client.send_message(message.channel, "{0}！アドレスがおかしいわね！！".format(user_mention))
+        return
+
+    if (len(dst_addr) != 34):
+        await client.send_message(message.channel, "{0}！アドレスがおかしいわね！！".format(user_mention))
+        return
+
     try:
         amount   = _round_down8(params[2])
     except:
         # exceptionで戻る
-        await client.send_message(message.channel, "{0}様、amount:{1}のパラメータが間違えているようです。".format(user_mention, amount))
+        await client.send_message(message.channel, "{0}！amount:{1}が数字じゃないわよ！！".format(user_mention, params[2]))
         return
 
     if amount < _round_down8(WITHDRAW_AMOUNT_MIN):
-        await client.send_message(message.channel, "{0}様、amount:{1:.8f}のパラメータが下限を割っています。".format(user_mention, amount))
+        await client.send_message(message.channel, "{0}！amount:{1:.8f}が最小値より少ないわ！！".format(user_mention, amount))
         return
 
     with closing(sqlite3.connect(DBNAME)) as connection:
@@ -652,39 +635,53 @@ async def _cmd_withdraw(client, message, params):
         if row is not None:
             # src アドレス取得
             src_addr = row[WalletNum.ADDR.value]
+            src_balance = _round_down8(str(row[WalletNum.BALANCE.value]))
         else:
-            await client.send_message(message.channel, "{0}様、アドレスの登録がお済みでないようです。".format(user_mention))
+            await client.send_message(message.channel, "{0}！あなたなんて知らないわ！！".format(user_mention))
             return
 
-    ################################
-    # TODO ここでRPCにて送金依頼
-    ################################
-    # src_addr,dst_addr,amount
-
-    ################################
-    wd_user = "**所有者**\r\n{0} 様  \r\n".format(usermention)
-    wd_src  = "**送金先**\r\n{0}     \r\n".format(dst_addr)
-    wd_am   = "**送金額**\r\n{0:.8f} XSEL\r\n".format(amount)
-    disp_msg = wd_user +wd_src +wd_dst +wd_am
-    await _disp_rep_msg( client, message,'送金(withdraw)','以下のように送金しました。',disp_msg )
-    ################################
-    return
-
-
-# ,withdraw (addr)(amount)
-# 「addr」に対して、「amount」XSELを送金します。
-async def _cmd_deposit(client, message, params):
-    if not params[0] == _CMD_STR_DEPOSIT:
+    contain_fee = amount + _round_down8(TRANSACTION_FEE)
+    if src_balance < contain_fee: # 残高がamountより下だったらエラー
+        await client.send_message(message.channel, "{0}！XSELが足りないようね！手数料が{3}必要よ！！balance:{1:.8f} XSEL / amount:{2:.8f} XSEL".format(user_mention, src_balance, amount, TRANSACTION_FEE))
         return
 
-    # Decimalの計算:float禁止
-    getcontext().traps[FloatOperation] = True
+    sendAmount = amount * COIN
+    p = Proxy()
+    try :
+        transaction = p.sendtoaddress(dst_addr, _str_integer(sendAmount))
+    except bitcoin.rpc.JSONRPCError as ex:
+        await client.send_message(message.channel, "{0}！失敗よ！！{1}".format(user_mention, ex))
+        logger.warning("withdraw error id={0} name={1} address={2} amount={3} error={4}".format(userid, username, dst_addr, amount, ex))
+        return
 
-    dbg_print("{0} {1}:{2}".format(_CMD_STR_DEPOSIT, message.author, message.content))
-    disp_msg=""
-    await _disp_rep_msg( client, message,'','すみません。未対応です。m(_ _)m',disp_msg )
+    logger.info("withdraw id={0} name={1} address={2} amount={3} error={4}".format(userid, username, dst_addr, amount, transaction))
+
+    # 送金分を減算
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        cursor = connection.cursor()
+        src_after_balance = src_balance - contain_fee
+        if not _update_balance(cursor, userid, src_after_balance):
+            await client.send_message(message.channel, "{0}！失敗したようね！！".format(user_mention))
+            return
+        connection.commit()
+
+    ################################
+    wd_dst  = "**address**\r\n{0}\r\n".format(dst_addr)
+    wd_am   = "**ammount**\r\n{0:.8f} XSEL\r\n".format(amount)
+    wd_tran   = "**transaction**\r\n{0}\r\n".format(transaction)
+    disp_msg = wd_dst + wd_am + wd_tran
+    await _disp_rep_msg( client, message, username, 'withdraw',disp_msg )
+    ################################
     return
 
+
+####################################################################################
+# 未対応、未実装        info, deposit
+####################################################################################
+
+# ,deposit addr (amount)    TODO アドレスいる？自分のならいらない
+# ウォレットからdiscord walletに送金します。
+# ウォレットにXSELを入れるには、このアドレスに送金してください。
 ##########################################
 # admin用
 # cmd_admin_lstに設定されているユーザしか実行できない。
@@ -861,8 +858,6 @@ async def _cmd_admin_balance(client, message, params):
     ################################
     return
 
-# 自分のbalanceに値を加算する。
-# ,adminself 1000,0
 async def _cmd_version(client, message, params):
     if not params[0] == _CMD_STR_VERSION:
         return
@@ -941,7 +936,7 @@ def _create_table():
         # balance : 残高
         # pending : 仮
         create_table = 'create table if not exists ' \
-            + REG_TABLENAME + ' (id varchar(32), username varchar(64), address varchar(64), balance text, pending text)'
+            + REG_TABLENAME + ' ({0} integer primary key, {1} varchar(64), {2} varchar(64), {3} text, {4} text, {5} text)'.format(COLUMN_ID, COLUMN_USER, COLUMN_ADDRESS, COLUMN_BALANCE, COLUMN_PENDING, COLUMN_LASTUPDATE)
         print(create_table)
         cursor.execute(create_table)
         connection.commit()
@@ -956,14 +951,12 @@ def _insert_user(cursor, userid, username, address, balance, pending):
 
     update = False
     if _is_exists_userid(cursor, userid):
-        sql = 'update ' + REG_TABLENAME + ' set username=? set address=? set balance=? set pending=? where id=?'
-        print(sql)
-        cursor.execute(sql, (username, address, balance, pending, userid))
+        sql = 'update ' + REG_TABLENAME + ' set {0}=?, {1}=?, {2}=?, {3}=?, {4}=? where {5}=?'.format(COLUMN_USER, COLUMN_ADDRESS, COLUMN_BALANCE, COLUMN_PENDING, COLUMN_LASTUPDATE, COLUMN_ID)
+        cursor.execute(sql, (username, address, balance, pending, _getnowtime(), int(userid)))
         update = True
     else:
-        sql = 'insert into ' + REG_TABLENAME + ' (id, username, address, balance, pending) values (?,?,?,?,?)'
-        print(sql)
-        cursor.execute(sql, (userid, username, address, balance, pending))
+        sql = 'insert into ' + REG_TABLENAME + ' ({0}, {1}, {2}, {3}, {4}, {5}) values (?,?,?,?,?,?)'.format(COLUMN_ID, COLUMN_USER, COLUMN_ADDRESS, COLUMN_BALANCE, COLUMN_PENDING, COLUMN_LASTUPDATE)
+        cursor.execute(sql, (int(userid), username, address, balance, pending, _getnowtime()))
     return update
 
 # 残高更新
@@ -973,9 +966,8 @@ def _update_balance(cursor, userid, balance):
     balance = str(balance)
     # --------------------------
     if _is_exists_userid(cursor, userid):
-        sql = 'update ' + REG_TABLENAME + ' set balance=? where id=?'
-        print(sql)
-        cursor.execute(sql, (balance, userid))
+        sql = 'update ' + REG_TABLENAME + ' set {0}=?, {1}=? where {2}=?'.format(COLUMN_BALANCE, COLUMN_LASTUPDATE, COLUMN_ID)
+        cursor.execute(sql, (balance, _getnowtime(), int(userid)))
         update = True
     return update
 
@@ -983,9 +975,8 @@ def _update_balance(cursor, userid, balance):
 def _update_username(cursor, userid, username):
     update = False
     if _is_exists_userid(cursor, userid):
-        sql = 'update ' + REG_TABLENAME + ' set username=? where id=?'
-        print(sql)
-        cursor.execute(sql, (username, userid))
+        sql = 'update ' + REG_TABLENAME + ' set {0}=?, {1}=? where {2}=?'.format(COLUMN_USER, COLUMN_LASTUPDATE, COLUMN_ID)
+        cursor.execute(sql, (username, _getnowtime(), int(userid)))
         update = True
     return update
 
@@ -993,9 +984,8 @@ def _update_username(cursor, userid, username):
 def _update_address(cursor, userid, address):
     update = False
     if _is_exists_userid(cursor, userid):
-        sql = 'update ' + REG_TABLENAME + ' set address=? where id=?'
-        print(sql)
-        cursor.execute(sql, (address, userid))
+        sql = 'update ' + REG_TABLENAME + ' set {0}=?, {1}=? where {2}=?'.format(COLUMN_ADDRESS, COLUMN_LASTUPDATE, COLUMN_ID)
+        cursor.execute(sql, (address, _getnowtime, int(userid)))
         update = True
     return update
 
@@ -1006,25 +996,22 @@ def _update_pending(cursor, userid, pending):
     pending = str(pending)
     # --------------------------
     if _is_exists_userid(cursor, userid):
-        sql = 'update ' + REG_TABLENAME + ' set pending=? where id=?'
-        print(sql)
-        cursor.execute(sql, (pending, userid))
+        sql = 'update ' + REG_TABLENAME + ' set {0}=?, {1}=? where {2}=?'.format(COLUMN_PENDING, COLUMN_LASTUPDATE, COLUMN_ID)
+        cursor.execute(sql, (pending, _getnowtime(), int(userid)))
         update = True
     return update
 
 # exist userid True:exist / False:
 def _get_user_row(cursor, userid):
-    select_sql = 'select * from ' + REG_TABLENAME + ' where id=?'
-    print(select_sql)
-    cursor.execute(select_sql, (userid,))
+    select_sql = 'select * from ' + REG_TABLENAME + ' where {0}=?'.format(COLUMN_ID)
+    cursor.execute(select_sql, (int(userid),))
     # 見つかったものを返却
     return cursor.fetchone()
 
 # exist user True:exist / False:
 def _is_exists_userid(cursor, userid):
-    select_sql = 'select * from ' + REG_TABLENAME + ' where id=?'
-    print(select_sql)
-    cursor.execute(select_sql, (userid,))
+    select_sql = 'select * from ' + REG_TABLENAME + ' where {0}=?'.format(COLUMN_ID)
+    cursor.execute(select_sql, (int(userid),))
     if cursor.fetchone() is None:
         return False
     else:
@@ -1036,10 +1023,9 @@ def _is_exists_record(cursor, userid, user_name, address, balance, pending):
     balance = str(balance)
     pending = str(pending)
     # --------------------------
-    select_sql = 'select * from ' + REG_TABLENAME + ' where id=? and username=? and address=? and balance=? and pending=?'
+    select_sql = 'select * from ' + REG_TABLENAME + ' where {0}=? and {1}=? and {2}=? and {3}=? and {4}=?'.format(COLUMN_ID, COLUMN_USER, COLUMN_ADDRESS, COLUMN_BALANCE, COLUMN_PENDING)
     # select_sql = 'select * from ' + REG_TABLENAME + ' where id=?'
-    print(select_sql)
-    cursor.execute(select_sql, (userid, user_name, address, balance, pending))
+    cursor.execute(select_sql, (int(userid), user_name, address, balance, pending))
     if cursor.fetchone() is None:
         return False
     else:
@@ -1047,10 +1033,8 @@ def _is_exists_record(cursor, userid, user_name, address, balance, pending):
 
 def count_record(cursor):
     select_sql = 'select count(*) from ' + REG_TABLENAME
-    print(select_sql)
     cursor.execute(select_sql)
     count = cursor.fetchone()
-    print(count)
     return count
 
 def _dump_all(cursor):
@@ -1089,14 +1073,6 @@ def _get_user2member(client, username):
             break
     return found_member
 
-# オンラインメンバーを抜き出す.
-def _get_online_members(client, message):
-    online_members = []
-    # onlineユーザ取得
-    if len(members) > 0:
-        online_members = list(filter(lambda x: (x.bot == False) and (x.status == discord.Status.online) and (message.author.id != member.id), client.get_all_members()))
-    return online_members
-
 # admin user check
 def _is_admin_user(user):
     admin_member = list(filter(lambda x: (x == user) , cmd_admin_lst))
@@ -1113,10 +1089,11 @@ def _round_down8(value):
     value = Decimal(value).quantize(Decimal('0.00000000'), rounding=ROUND_DOWN)
     return value
 
-#デバッグ用
 def _str_round_down8(value):
-    return "{:.16f}".format(_round_down8(value))
+    return "{:.8f}".format(value)
 
+def _str_integer(value):
+    return "{:.0f}".format(value)
 
 ##########################################
 # 表示
@@ -1126,7 +1103,7 @@ async def _disp_rep_msg( client, message, disp_name, disp_title, disp_msg ):
     # # 埋め込みメッセージ
     msg = discord.Embed(title=disp_title, type="rich",description=disp_msg, colour=0x3498db)
     # TODO iconが挿入されないので後で確認
-    msg.set_author(name=disp_name, icon_url=client.user.avatar_url)
+    msg.set_author(name=disp_name, icon_url=message.author.avatar_url)
 
     # ---------------------------------------------------------
     # selnのICONならこっち(seniのicon)
@@ -1134,7 +1111,7 @@ async def _disp_rep_msg( client, message, disp_name, disp_title, disp_msg ):
     # msg.set_thumbnail(url=user_info.avatar_url)
     # ---------------------------------------------------------
     # 応答者のICONならこっち
-    msg.set_thumbnail(url=message.author.avatar_url)
+#    msg.set_thumbnail(url=message.author.avatar_url)
     # ---------------------------------------------------------
     # msg.set_footer(text='###########')
     txt_msg = await client.send_message(message.channel, embed=msg)
@@ -1145,66 +1122,5 @@ def dbg_print( msg_str ):
     print(msg_str)
     pass
 
-##########################################
-# 後ほど破棄
-##########################################
-# testユーザ登録
-# ,testregister
-async def _cmd_test_register(client, message, params):
-    if not params[0] == _CMD_STR_TEST_REGISTER:
-        return
-    #------------------------------------
-    # 送信用にアドレス入れておく
-    testuserid = '441218236227387407'
-    testuser   = 'seni#6719'
-    address    = INIT_ADDR_DUMMY
-    balance    = _round_down8(INIT_REG_BALANCE)
-    pending    = _round_down8("0.0")
-    #------------------------------------
-    with closing(sqlite3.connect(DBNAME)) as connection:
-        cursor = connection.cursor()
-        count = count_record(cursor)
-        # ユーザが登録済みかを確認する.
-        if _is_exists_userid(cursor, testuserid): # すでにユーザが存在する
-            await client.send_message(message.channel, "{0}様はもう登録されておりますよ。".format(testuser))
-        else:
-            update = _insert_user(cursor, testuserid ,testuser ,address ,balance ,pending)
-            connection.commit()
-    #------------------------------------
-    # 送信用にアドレス入れておく
-    testuserid = '391247317140897804'
-    testuser   = 'ysk-n1#4046'
-    address    = INIT_ADDR_DUMMY
-    balance    = _round_down8(INIT_REG_BALANCE)
-    pending    = _round_down8("0.0")
-    #------------------------------------
-    with closing(sqlite3.connect(DBNAME)) as connection:
-        cursor = connection.cursor()
-        count = count_record(cursor)
-        # ユーザが登録済みかを確認する.
-        if _is_exists_userid(cursor, testuserid): # すでにユーザが存在する
-            await client.send_message(message.channel, "{0}様はもう登録されておりますよ。".format(testuser))
-        else:
-            update = _insert_user(cursor, testuserid ,testuser ,address ,balance ,pending)
-            connection.commit()
-    #------------------------------------
-    # 送信用にアドレス入れておく
-    testuserid = '449933133266026497'
-    testuser   = 'sunday#1914'
-    address    = INIT_ADDR_DUMMY
-    balance    = _round_down8(INIT_REG_BALANCE)
-    pending    = _round_down8("0.0")
-    #------------------------------------
-    with closing(sqlite3.connect(DBNAME)) as connection:
-        cursor = connection.cursor()
-        count = count_record(cursor)
-        # ユーザが登録済みかを確認する.
-        if _is_exists_userid(cursor, testuserid): # すでにユーザが存在する
-            await client.send_message(message.channel, "{0}様はもう登録されておりますよ。".format(testuser))
-        else:
-            update = _insert_user(cursor, testuserid ,testuser ,address ,balance ,pending)
-            connection.commit()
-
-    await client.send_message(message.channel, "```登録しました。```")
-    return
-
+def _getnowtime():
+    return datetime.now().strftime("%Y/%m/%d %H:%M:%S")
