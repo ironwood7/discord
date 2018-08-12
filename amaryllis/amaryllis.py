@@ -52,23 +52,15 @@ async def on_message(message):
         else :
             # Provisional imp >>
             # none private message
-            if message.content.startswith(",gettoken"):
+            param = message.content.split()
+            if param[0] == ",gettoken":
                 print(message.channel)
                 await client.send_message(message.channel, CMD_ERROR_GETTOKEN)
                 return
             # << Provisional imp
-            # wallet
-            elif message.channel.id == myserver.CH_ID_REGISTER:
-                await wallet.on_message_inner(client, message)
-            # address
-            elif message.channel.id == myserver.CH_ID_ADMIN:
-                await wallet.on_message_inner(client, message)
-            # wallet
-            elif message.channel.id == myserver.CH_ID_WALLET:
-                await wallet.on_message_inner(client, message)
             else:
+                await wallet.on_message_inner(client, message)
                 pass
-
         return
 
 def daemonize():
