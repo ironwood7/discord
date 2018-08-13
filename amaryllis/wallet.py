@@ -143,7 +143,7 @@ async def on_message_inner(client, message):
         await _cmd_tip(client, message, params)
     elif (_CMD_STR_RAIN == params[0]):
         await _cmd_rain(client, message, params)
-    elif message.channel.id == myserver.CH_ID_WALLET:
+    elif (message.channel.id == myserver.CH_ID_WALLET) or (message.channel.id == myserver.CH_ID_WALLET_STAFF):
         # 登録
         await _cmd_register(client, message, params)
         # WALLET
@@ -1067,7 +1067,7 @@ def _dump_all(cursor):
 def _get_usermention2member(client, usermention):
     found_member = None
     # @<21839127398172937>とかできていることを想定する。
-    user_id = usermention.strip('@<>')
+    user_id = usermention.strip('@<>!')
     if False == user_id.isdigit():
         return found_member
     members = client.get_all_members()  # メンバ取得
