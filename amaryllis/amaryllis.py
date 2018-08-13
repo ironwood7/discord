@@ -8,6 +8,7 @@ import myserver
 import wallet
 import sys
 import os
+import time
 
 client = discord.Client()
 
@@ -82,6 +83,7 @@ def daemonize():
 if __name__ == '__main__':
     while True:
         daemonize()
+        time.sleep(10)
     # # test
     # client.run(myserver.TOKEN)
 

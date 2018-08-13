@@ -10,6 +10,7 @@ from datetime import datetime
 import logging.config
 import bitcoin
 from bitcoin.rpc import Proxy
+import time
 
 # getcontext.precは、デフォルト28のまま
 
@@ -115,6 +116,9 @@ COLUMN_PENDING = 'pending'
 COLUMN_LASTUPDATE = 'lastupdate'
 
 logger = logging.getLogger()
+
+TRANSACTION_BLANK_TIME = 1    #ms
+last_transaction = 0
 
 # db table 要素の番号
 class WalletNum(Enum):
@@ -645,12 +649,22 @@ async def _cmd_withdraw(client, message, params):
         await client.send_message(message.channel, "{0}！XSELが足りないようね！手数料が{3}必要よ！！balance:{1:.8f} XSEL / amount:{2:.8f} XSEL".format(user_mention, src_balance, amount, TRANSACTION_FEE))
         return
 
+    global last_transaction
+    if (time.time() - last_transaction) < TRANSACTION_BLANK_TIME :
+        await client.send_message(message.channel, "{0}！落ち着いて深呼吸するのよ！！".format(user_mention))
+        return        
+
     sendAmount = amount * COIN
     p = Proxy()
     try :
         transaction = p.sendtoaddress(dst_addr, _str_integer(sendAmount))
+        last_transaction = time.time()
     except bitcoin.rpc.JSONRPCError as ex:
         await client.send_message(message.channel, "{0}！失敗よ！！{1}".format(user_mention, ex))
+        logger.warning("withdraw error id={0} name={1} address={2} amount={3} error={4}".format(userid, username, dst_addr, amount, ex))
+        return
+    except Exception as ex:
+        await client.send_message(message.channel, "{0}！失敗よ！！".format(user_mention))
         logger.warning("withdraw error id={0} name={1} address={2} amount={3} error={4}".format(userid, username, dst_addr, amount, ex))
         return
 
