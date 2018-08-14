@@ -34,13 +34,18 @@ class CWalletSyncher :
 
         self.logger = logging.getLogger("sync")
 
+        self.stopped = False
         t = threading.Thread(target=self._sync)
-        t.setDaemon(True)
         t.start()
+
+    def stop_sync(self):
+        self.stopped = True
 
     def _sync(self) :
         while True:
             self._sync_block()
+            if self.stopped:
+                break
             sleep(DURATION)
 
     def _sync_block(self):
@@ -62,6 +67,9 @@ class CWalletSyncher :
                 return
 
             for i in range(checkedcount + 1, blockcount - CONFIRMATIONS):
+                if self.stopped:
+                    break
+
                 print("sync blockheight = " + str(i))
                 block = p.getblockbynumber(i)
                 if block is None:
@@ -119,9 +127,9 @@ class CWalletSyncher :
                                 if not self.dbaccessor.update_balance_with_blockheight(cursor, row[walletdb.WalletNum.ID.value], dst_balance, i):
                                     print("sync update faild.")
                                     return
-                            self.logger.debug(
-                                "username=" + row[walletdb.WalletNum.USER.value] + " before=" + CWalletSyncher._str_round_down8(src_balance) +
-                                " after=" + CWalletSyncher._str_round_down8(dst_balance) + " height=" + str(i))
+                                self.logger.debug(
+                                    "username=" + row[walletdb.WalletNum.USER.value] + " before=" + CWalletSyncher._str_round_down8(src_balance) +
+                                    " after=" + CWalletSyncher._str_round_down8(dst_balance) + " height=" + str(i))
                         break
                     pass
                 self._update_checked_count(cursor, i)

@@ -87,7 +87,7 @@ logging.config.fileConfig('walletlogging.conf')
 logger = logging.getLogger()
 dblock = threading.Lock()
 dbaccessor = CWalletDbAccessor(DBNAME)
-syncher = CWalletSyncher(DBNAME, dbaccessor, dblock)
+syncher = None
 
 TRANSACTION_BLANK_TIME = 1  # ms
 last_transaction = 0
@@ -96,6 +96,10 @@ def on_ready():
     bitcoin.SelectParams("mainnet")
     # Decimalの計算:float禁止
     getcontext().traps[FloatOperation] = True
+    global syncher
+    if syncher is not None:
+        syncher.stop_sync()
+    syncher = CWalletSyncher(DBNAME, dbaccessor, dblock)
 
 async def on_message_inner(client, message):
     params = message.content.split()
