@@ -135,7 +135,8 @@ class BaseProxy(object):
             # Figure out the path to the bitcoin.conf file
             if btc_conf_file is None:
                 if platform.system() == 'Darwin':
-                    btc_conf_file = os.path.expanduser('~/Library/Application Support/Seln/')
+                    btc_conf_file = os.path.expanduser(
+                        '~/Library/Application Support/Seln/')
                 elif platform.system() == 'Windows':
                     btc_conf_file = os.path.join(os.environ['APPDATA'], 'Seln')
                 else:
@@ -495,7 +496,7 @@ class Proxy(BaseProxy):
         else:
             r = self._call('getnewaddress')
 
-        return CBitcoinAddress(r)
+        return r
 
     def getrawchangeaddress(self):
         """Returns a new Bitcoin address, for receiving change.
@@ -570,7 +571,7 @@ class Proxy(BaseProxy):
         FIXME: Returned data types are not yet converted.
         """
         try:
-            r = self._call('gettransaction', b2lx(txid))
+            r = self._call('gettransaction', txid)
         except InvalidAddressOrKeyError as ex:
             raise IndexError('%s.getrawtransaction(): %s (%d)' %
                     (self.__class__.__name__, ex.error['message'], ex.error['code']))
@@ -713,6 +714,13 @@ class Proxy(BaseProxy):
         (default=60)
         """
         r = self._call('walletpassphrase', password, timeout)
+        return r
+
+    def getblockbynumber(self, number):
+        """Return block by number.
+        """
+        r = self._call('getblockbynumber', number)
+
         return r
 
     def _addnode(self, node, arg):
