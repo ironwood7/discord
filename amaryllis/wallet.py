@@ -319,7 +319,7 @@ async def _cmd_balance(client, message, params):
     # 残高表示
     ################################
     bl_balance  = "**Balance**\r\n{0:.8f} XSEL\r\n".format(src_balance)
-    rep_height = "**Newest deposit height**\r\n{0}\r\n".format(str(lastheight))
+    rep_height = "**Latest deposit height**\r\n{0}\r\n".format(str(lastheight))
     disp_msg = bl_balance + rep_height
     await _disp_rep_msg( client, message, username, "" , disp_msg )
     ################################
