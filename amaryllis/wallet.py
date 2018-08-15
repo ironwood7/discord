@@ -71,9 +71,9 @@ _CMD_STR_BALANCE       = ",balance"
 _CMD_STR_TIP           = ",tip"
 _CMD_STR_RAIN          = ",rain"
 _CMD_STR_INFO          = ",info"
-_CMD_STR_DEPOSIT       = ",deposit"
 _CMD_STR_WITHDRAW      = ",withdraw"
 _CMD_STR_VERSION       = ",version"
+_CMD_STR_HELP          = ",help"
 # adminsend, adminself
 _CMD_STR_ADMIN_SEND    = ",adminsend"
 _CMD_STR_ADMIN_SELF    = ",adminself"
@@ -108,13 +108,14 @@ async def on_message_inner(client, message):
         await _cmd_tip(client, message, params)
     elif (_CMD_STR_RAIN == params[0]):
         await _cmd_rain(client, message, params)
+    elif (_CMD_STR_HELP == params[0]):
+        await _cmd_help(client, message, params)
     elif (message.channel.id == myserver.CH_ID_WALLET) or (message.channel.id == myserver.CH_ID_WALLET_STAFF):
         # 登録
         await _cmd_register(client, message, params)
         # WALLET
         await _cmd_balance(client, message, params)
         await _cmd_withdraw(client, message, params)
-        #   未実装
         await _cmd_info(client, message, params)
         await _cmd_deposit(client, message, params)
     elif message.channel.id == myserver.CH_ID_ADMIN:
@@ -211,6 +212,14 @@ async def _cmd_dump(client, message, params):
         dbaccessor.dump_all(cursor)
         # await _dump_all_private(client, message, cursor)
 
+
+async def _cmd_help(client, message, params):
+    if not params[0] == _CMD_STR_HELP:
+        return
+
+    user_mention = message.author.mention
+    await client.send_message(message.channel, "{0}！<#{1}>を見るのよ！！".format(user_mention, myserver.CH_ID_HELP))
+    return
 
 # ,info
 # 現在のXSELの価格を表示します。
