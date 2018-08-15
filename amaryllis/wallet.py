@@ -422,8 +422,8 @@ async def _cmd_tip(client, message, params):
         connection.commit()
     ################################
     # tip_user = "**送金者**\r\n{0} 様\r\n".format(username)
-    tip_dst  = "**to**\r\n{0}\r\n".format(member.mention)
-    tip_am   = "**Amount**\r\n{0:.8f} XSEL\r\n".format(amount)
+    tip_dst = "**to**\r\n{0}\r\n".format(str(member))
+    tip_am = "**Amount**\r\n{0:.8f} XSEL\r\n".format(amount)
     disp_msg = tip_dst +tip_am
     await _disp_rep_msg( client, message, username, 'Tip', disp_msg )
     ################################
