@@ -455,10 +455,6 @@ async def _cmd_rain(client, message, params):
     if amount < _round_down8(RAIN_AMOUNT_MIN):
         await client.send_message(message.channel, "{0}！rainは {1:.8f} XSEL以上にしなさい！".format(user_mention, _round_down8(RAIN_AMOUNT_MIN)))
         return
-    # if amount > _round_down8(RAIN_AMOUNT_MAX):
-    #     await client.send_message(message.channel, "{0}様、amountのパラメータが上限を超えています。amount:{1:.8f} XSEL > {2:.8f} XSEL".format(user_mention, amount, _round_down8(RAIN_AMOUNT_MAX)))
-    #     return
-    # ----------------------------
     # まず自分のアドレス
     src_balance = _round_down8("0.0")
     with closing(sqlite3.connect(DBNAME)) as connection:
@@ -664,13 +660,6 @@ async def _cmd_withdraw(client, message, params):
     return
 
 
-####################################################################################
-# 未対応、未実装        info, deposit
-####################################################################################
-
-# ,deposit addr (amount)    TODO アドレスいる？自分のならいらない
-# ウォレットからdiscord walletに送金します。
-# ウォレットにXSELを入れるには、このアドレスに送金してください。
 ##########################################
 # admin用
 # cmd_admin_lstに設定されているユーザしか実行できない。
@@ -710,14 +699,12 @@ async def _cmd_admin_send(client, message, params):
         return
 
     dst_balance = _round_down8("0.0")
-    # dst_pending = _round_down8("0.0")
     dst_username = ''
     with closing(sqlite3.connect(DBNAME)) as connection:
         cursor = connection.cursor()
         row = dbaccessor.get_user_row(cursor, dst_userid)
         if row is not None:
             dst_balance  = _round_down8(str(row[walletdb.WalletNum.BALANCE.value]))
-            # dst_pending  = _round_down8(str(row[WalletNum.PENDING.value]))
             dst_username = row[walletdb.WalletNum.USER.value]
 
             dst_balance += amount
@@ -736,7 +723,6 @@ async def _cmd_admin_send(client, message, params):
     ################################
     bl_user     = "**所有者**\r\n<@{0}> 様\r\n".format(dst_userid)
     bl_balance  = "**残高**\r\n{0:.8f} XSEL\r\n".format(dst_balance)
-    # bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(dst_pending)
     disp_msg = bl_user +bl_balance
     await _disp_rep_msg( client, message,'残高(BALANCE)','残高更新しました。',disp_msg )
     ################################
@@ -771,13 +757,11 @@ async def _cmd_admin_self(client, message, params):
         return
 
     src_balance = _round_down8("0.0")
-    # src_pending = _round_down8("0.0")
     with closing(sqlite3.connect(DBNAME)) as connection:
         cursor = connection.cursor()
         row = dbaccessor.get_user_row(cursor, src_userid)
         if row is not None:
             src_balance = _round_down8(str(row[walletdb.WalletNum.BALANCE.value]))
-            # src_pending = _round_down8(str(row[WalletNum.PENDING.value]))
             src_balance += amount
             if src_balance < _round_down8("0.0"):
                 src_balance = _round_down8("0.0")
@@ -794,8 +778,6 @@ async def _cmd_admin_self(client, message, params):
     ################################
     bl_user     = "**所有者**\r\n{0} 様\r\n".format(user_mention)
     bl_balance  = "**残高**\r\n{0:.8f} XSEL   \r\n".format(src_balance)
-    # bl_pending  = "**PENDING**\r\n{0} XSEL\r\n".format(src_pending)
-    # disp_msg = bl_user +bl_balance + bl_pending
     disp_msg = bl_user +bl_balance
     await _disp_rep_msg( client, message,'残高(BALANCE)','残高更新しました。',disp_msg )
     ################################
@@ -970,18 +952,7 @@ def _str_integer(value):
 async def _disp_rep_msg( client, message, disp_name, disp_title, disp_msg ):
     # # 埋め込みメッセージ
     msg = discord.Embed(title=disp_title, type="rich",description=disp_msg, colour=0x3498db)
-    # TODO iconが挿入されないので後で確認
     msg.set_author(name=disp_name, icon_url=message.author.avatar_url)
-
-    # ---------------------------------------------------------
-    # selnのICONならこっち(seniのicon)
-    # user_info = await client.get_user_info(441218236227387407)
-    # msg.set_thumbnail(url=user_info.avatar_url)
-    # ---------------------------------------------------------
-    # 応答者のICONならこっち
-#    msg.set_thumbnail(url=message.author.avatar_url)
-    # ---------------------------------------------------------
-    # msg.set_footer(text='###########')
     txt_msg = await client.send_message(message.channel, embed=msg)
     # await client.add_reaction(txt_msg,'👍')
 

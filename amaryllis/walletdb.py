@@ -35,12 +35,6 @@ class CWalletDbAccessor:
         with closing(sqlite3.connect(self.dbname)) as connection:
             cursor = connection.cursor()
 
-            # executeメソッドでSQL文を実行する
-            # id '449934944785924096'
-            # username ironwood@7205のようなユーザ名 : 備考みたいなもの
-            # address : selnアドレス : しばらくはdummyアドレス
-            # balance : 残高
-            # pending : 仮
             create_table = 'create table if not exists ' \
                 + TABLENAME + ' ({0} integer primary key, {1} varchar(64), {2} varchar(64), {3} text, {4} text, {5} text, {6} integer)'.format(
                     COLUMN_ID, COLUMN_USER, COLUMN_ADDRESS, COLUMN_BALANCE, COLUMN_PENDING, COLUMN_LASTUPDATE, COLUMN_LASTSYNCBLOCK)
