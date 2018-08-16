@@ -86,7 +86,7 @@ _CMD_STR_DBG_CMD       = ",dbg"
 
 # jackpot
 JACKPOT_PROBABILITY = 100000
-JACKPOT_HIT_NUMBER = 77777
+JACKPOT_HIT_NUMBER = [777, 7777, 77777]
 JACKPOT_WEIGHT = Decimal(1)
 JACKPOT_LOTTERY_MIN = 100
 
@@ -597,11 +597,13 @@ async def _cmd_rain(client, message, params):
     ra_sent  = "**Receiver count**\r\n{0}\r\n".format(sent_count)
     ra_total = "**Rain amount**\r\n{0:.8f} XSEL\r\n".format(total_sent)
     ra_am    = "**Per person**\r\n{0:.8f} XSEL\r\n".format(send_amount)
-    if lottery:
+    if not is_admin:
         ra_jackpot = "**Jackpot**\r\n{0} XSEL\r\n".format(str(jackpot))
-        ra_lottery = "**Lottery**\r\n{0}\r\n".format(str(result_number))
     else:
         ra_jackpot = ""
+    if lottery:
+        ra_lottery = "**Lottery**\r\n{0}\r\n".format(str(result_number))
+    else:
         ra_lottery = ""
 
     disp_msg = ra_sent + ra_total + ra_am + ra_jackpot + ra_lottery
@@ -620,7 +622,7 @@ async def _cmd_rain(client, message, params):
 def _lottery_jackpot(userid, jackpot):
     result = random.randint(1, JACKPOT_PROBABILITY)
     hit = False
-    if result == JACKPOT_HIT_NUMBER:
+    if result in JACKPOT_HIT_NUMBER:
         with closing(sqlite3.connect(DBNAME)) as connection, dblock:
             cursor = connection.cursor()
             userrow = dbaccessor.get_user_row(cursor, userid)
