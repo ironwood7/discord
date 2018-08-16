@@ -47,7 +47,7 @@ import myserver
 # amount上限
 WITHDRAW_AMOUNT_MIN   = "0.00000001"
 TIP_AMOUNT_MIN        = "0.00000001"
-RAIN_AMOUNT_MIN       = "1.00000000"
+RAIN_AMOUNT_MIN       = "1"
 RAIN_ONE_AMOUNT_MIN   = "0.00000001"
 RELEASE_VERSION       = "Version:1.0"
 
@@ -131,6 +131,8 @@ async def on_message_inner(client, message):
             await _cmd_info(client, message, params)
         elif (_CMD_STR_DEPOSIT == params[0]):
             await _cmd_deposit(client, message, params)
+        elif (_CMD_STR_JACKPOT == params[0]):
+            await _cmd_jackpot(client, message, params)
     elif message.channel.id == myserver.CH_ID_ADMIN:
         await _cmd_dump(client, message, params)
         await _cmd_dbg_cmd(client, message, params)
@@ -339,6 +341,33 @@ async def _cmd_balance(client, message, params):
     ################################
     return
 
+# ,jackpot
+# Jackpot残高を確認する。
+async def _cmd_jackpot(client, message, params):
+    # ウォレットの残高を確認します。
+    if not params[0] == _CMD_STR_JACKPOT:
+        return
+    # userからaddressを取得する。
+    username     = str(message.author)
+    user_mention = message.author.mention
+
+    if (len(params) > 1):
+        await client.send_message(message.channel, "{0}！間違っているわよ！".format(user_mention))
+        return
+
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        cursor = connection.cursor()
+        jackpot = dbaccessor.get_jackpot(cursor)
+
+    ################################
+    # 残高表示
+    ################################
+    bl_balance  = "**Jackpot**\r\n{0} XSEL\r\n".format(jackpot)
+    disp_msg = bl_balance
+    await _disp_rep_msg( client, message, username, "" , disp_msg )
+    ################################
+    return
+
 # ,tip (to) (amount)
 # 「to」に対して、「amount」XSELを渡します。
 # toには、discordの名前を指定してください。
@@ -490,7 +519,6 @@ async def _cmd_rain(client, message, params):
         receiver_user_ids = dbaccessor.get_rain_users(
             cursor, src_userid, time.time() - RAIN_EXPIRATION)
 
-    print("receivers = " + str(receiver_user_ids))
     # 対象ユーザが０であるか？
     receiver_user_count = len(receiver_user_ids)
     if receiver_user_count <= 0:
@@ -498,6 +526,7 @@ async def _cmd_rain(client, message, params):
         return
 
     is_admin = _is_admin_user(src_userid)
+    is_admin = False
 
     # ------------------------
     # RainAmount計算
@@ -557,10 +586,13 @@ async def _cmd_rain(client, message, params):
 
     lottery = not is_admin and amount >= JACKPOT_LOTTERY_MIN
 
+    result_number = 0
+    hit = False
     if lottery:
         hit, result_number = _lottery_jackpot(src_userid, jackpot)
 
-    logger.info("rain from id={0} name={1} before={2} rain={3} after={4}".format(src_userid, user, src_balance, amount, src_after_balance))
+    logger.info("rain from id={0} name={1} before={2} rain={3} after={4} lottery={5}".format(
+        src_userid, user, src_balance, amount, src_after_balance, str(result_number)))
     ################################
     ra_sent  = "**Receiver count**\r\n{0}\r\n".format(sent_count)
     ra_total = "**Rain amount**\r\n{0:.8f} XSEL\r\n".format(total_sent)
@@ -587,8 +619,6 @@ async def _cmd_rain(client, message, params):
 
 def _lottery_jackpot(userid, jackpot):
     result = random.randint(1, JACKPOT_PROBABILITY)
-    print("jackpot= " + str(jackpot) + " result=" + str(result))
-
     hit = False
     if result == JACKPOT_HIT_NUMBER:
         with closing(sqlite3.connect(DBNAME)) as connection, dblock:
@@ -601,6 +631,9 @@ def _lottery_jackpot(userid, jackpot):
             dbaccessor.update_jackpot(cursor, 0)
             connection.commit()
             hit = True
+            logger.info("lottery from id={0} amount={1} lottery={2}".format(
+                str(userid), str(jackpot), str(result)))
+
 
     return hit, result
 
