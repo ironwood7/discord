@@ -3,8 +3,10 @@ import sqlite3
 from contextlib import closing
 from enum import Enum
 from datetime import datetime
+import time
 
 TABLENAME = 'wallet'
+JACKPOT_TABLENAME = 'jackpot'
 
 COLUMN_AUTONUM = 'no'
 COLUMN_ID = 'id'
@@ -14,6 +16,11 @@ COLUMN_BALANCE = 'balance'
 COLUMN_PENDING = 'pending'
 COLUMN_LASTUPDATE = 'lastupdate'
 COLUMN_LASTSYNCBLOCK = 'lastsyncblock'
+COLUMN_LASTCOMMENT = 'lastcomment'
+COLUMN_ADMIN = 'admin'
+
+JACKPOT_COLUMN_ID = 'id'
+JACKPOT_COLUMN_AMOUNT = 'amount'
 
 
 class WalletNum(Enum):
@@ -24,20 +31,22 @@ class WalletNum(Enum):
     PENDING = 4
     LASTUPDATE = 5
     LASTSYNCBLOCK = 6
-
+    LASTCOMMENT = 7
+    ADMIN = 8
 
 class CWalletDbAccessor:
     def __init__(self, dbname):
         self.dbname = dbname
         self._create_table()
+        self._create_jackpot_table()
 
     def _create_table(self):
         with closing(sqlite3.connect(self.dbname)) as connection:
             cursor = connection.cursor()
 
             create_table = 'create table if not exists ' \
-                + TABLENAME + ' ({0} integer primary key, {1} varchar(64), {2} varchar(64), {3} text, {4} text, {5} text, {6} integer)'.format(
-                    COLUMN_ID, COLUMN_USER, COLUMN_ADDRESS, COLUMN_BALANCE, COLUMN_PENDING, COLUMN_LASTUPDATE, COLUMN_LASTSYNCBLOCK)
+                + TABLENAME + ' ({0} integer primary key, {1} varchar(64), {2} varchar(64), {3} text, {4} text, {5} text, {6} integer, {7} integer, {8} integer)'.format(
+                    COLUMN_ID, COLUMN_USER, COLUMN_ADDRESS, COLUMN_BALANCE, COLUMN_PENDING, COLUMN_LASTUPDATE, COLUMN_LASTSYNCBLOCK, COLUMN_LASTCOMMENT, COLUMN_ADMIN)
             print(create_table)
             cursor.execute(create_table)
             connection.commit()
@@ -56,6 +65,39 @@ class CWalletDbAccessor:
                 connection.execute("alter table {0} add column {1} integer".format(
                     TABLENAME, COLUMN_LASTSYNCBLOCK))
 
+            # lastcommentカラムが無かったら作成.
+            exist = False
+            for column in columns:
+                if column[1] == COLUMN_LASTCOMMENT:
+                    exist = True
+
+            if not exist:
+                connection.execute("alter table {0} add column {1} integer".format(
+                    TABLENAME, COLUMN_LASTCOMMENT))
+
+            # adminカラムが無かったら作成.
+            exist = False
+            for column in columns:
+                if column[1] == COLUMN_ADMIN:
+                    exist = True
+
+            if not exist:
+                connection.execute("alter table {0} add column {1} integer".format(
+                    TABLENAME, COLUMN_ADMIN))
+
+            connection.commit()
+
+    def _create_jackpot_table(self):
+        with closing(sqlite3.connect(self.dbname)) as connection:
+            cursor = connection.cursor()
+
+            create_table = 'create table if not exists ' \
+                + JACKPOT_TABLENAME + ' ({0} integer primary key, {1} integer)'.format(
+                    COLUMN_ID, JACKPOT_COLUMN_AMOUNT)
+            print(create_table)
+            cursor.execute(create_table)
+            if self.get_jackpot(cursor) is None:
+                self._insert_default_jackpot(cursor)
             connection.commit()
 
     def insert_user(self, cursor, userid, username, address, balance, pending):
@@ -89,6 +131,15 @@ class CWalletDbAccessor:
                 ' set {0}=?, {1}=? where {2}=?'.format(
                     COLUMN_BALANCE, COLUMN_LASTUPDATE, COLUMN_ID)
             cursor.execute(sql, (balance, self._getnowtime(), int(userid)))
+            update = True
+        return update
+
+    def update_lastcomment(self, cursor, userid):
+        update = False
+        if self.is_exists_userid(cursor, userid):
+            sql = 'update ' + TABLENAME + ' set {0}=? where {1}=?'.format(
+                    COLUMN_LASTCOMMENT, COLUMN_ID)
+            cursor.execute(sql, (time.time(), int(userid)))
             update = True
         return update
 
@@ -151,29 +202,18 @@ class CWalletDbAccessor:
         # 見つかったものを返却
         return cursor.fetchone()
 
-    # exist user True:exist / False:
+    def get_rain_users(self, cursor, exclude, time):
+        print("rain " + str(time))
+        select_sql = 'select {0} from '.format(COLUMN_ID) + TABLENAME + \
+            ' where {0}>=? and {1}<>? and ({2} is null or {2}<>?)'.format(COLUMN_LASTCOMMENT, COLUMN_ID, COLUMN_ADMIN)
+        cursor.execute(select_sql, (int(time), exclude, 1))
+        return cursor.fetchall()
 
+    # exist user True:exist / False:
     def is_exists_userid(self, cursor, userid):
         select_sql = 'select * from ' + TABLENAME + \
             ' where {0}=?'.format(COLUMN_ID)
         cursor.execute(select_sql, (int(userid),))
-        if cursor.fetchone() is None:
-            return False
-        else:
-            return True
-
-    # exist user & address pare
-
-    def is_exists_record(self, cursor, userid, user_name, address, balance, pending):
-        # --------------------------
-        balance = str(balance)
-        pending = str(pending)
-        # --------------------------
-        select_sql = 'select * from ' + TABLENAME + ' where {0}=? and {1}=? and {2}=? and {3}=? and {4}=?'.format(
-            COLUMN_ID, COLUMN_USER, COLUMN_ADDRESS, COLUMN_BALANCE, COLUMN_PENDING)
-        # select_sql = 'select * from ' + TABLENAME + ' where id=?'
-        cursor.execute(select_sql, (int(userid), user_name,
-                                    address, balance, pending))
         if cursor.fetchone() is None:
             return False
         else:
@@ -197,3 +237,45 @@ class CWalletDbAccessor:
             ' where {0}=?'.format(COLUMN_ADDRESS)
         cursor.execute(select_sql, (address,))
         return cursor.fetchone()
+
+    def set_admin(self, cursor, userid):
+        sql = 'update ' + TABLENAME + \
+            ' set {0}=? where {1}=?'.format(
+                COLUMN_ADMIN, COLUMN_ID)
+        cursor.execute(sql, (1, int(userid)))
+
+    def is_admin(self, cursor, userid):
+        select_sql = 'select {0} from '.format(COLUMN_ADMIN) + TABLENAME + \
+            ' where {0}=?'.format(COLUMN_ID)
+        cursor.execute(select_sql, (int(userid),))
+        admin_flag = cursor.fetchone()
+        if admin_flag is None or admin_flag[0] is None or admin_flag[0] != 1:
+            return False
+        else:
+            return True
+
+
+    def _insert_default_jackpot(self, cursor):
+        sql = 'insert into ' + JACKPOT_TABLENAME + ' ({0}, {1}) values (?,?)'.format(
+            JACKPOT_COLUMN_ID, JACKPOT_COLUMN_AMOUNT)
+        cursor.execute(sql, (0, 0))
+
+    def update_jackpot(self, cursor, amount):
+        sql = 'update ' + JACKPOT_TABLENAME + \
+            ' set {0}=? where {1}=?'.format(JACKPOT_COLUMN_AMOUNT, JACKPOT_COLUMN_ID)
+        cursor.execute(sql, (amount, 0))
+
+    def add_jackpot(self, cursor, amount):
+        sql = 'update ' + JACKPOT_TABLENAME + \
+            ' set {0}={0}+? where {1}=?'.format(
+                JACKPOT_COLUMN_AMOUNT, JACKPOT_COLUMN_ID)
+        cursor.execute(sql, (amount, 0))
+
+    def get_jackpot(self, cursor):
+        select_sql = 'select * from ' + JACKPOT_TABLENAME
+        cursor.execute(select_sql)
+        row = cursor.fetchone()
+        amount = None
+        if row is not None:
+            amount = row[1]
+        return amount

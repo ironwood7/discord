@@ -12,7 +12,8 @@ from walletsync import CWalletSyncher
 from contextlib import closing
 import time
 import threading
-import myserver
+import random
+#import myserver
 
 # getcontext.precは、デフォルト28のまま
 
@@ -43,7 +44,6 @@ import myserver
 # 現在のXSELの価格を表示します。
 #########################################################
 
-cmd_admin_lst=["seni#6719", "ironwood#7205", "ysk-n#4046", "sunday#1914" ]
 # amount上限
 WITHDRAW_AMOUNT_MIN   = "0.00000001"
 TIP_AMOUNT_MIN        = "0.00000001"
@@ -74,14 +74,24 @@ _CMD_STR_INFO          = ",info"
 _CMD_STR_WITHDRAW      = ",withdraw"
 _CMD_STR_VERSION       = ",version"
 _CMD_STR_HELP          = ",help"
+_CMD_STR_JACKPOT       = ",jackpot"
 # adminsend, adminself
 _CMD_STR_ADMIN_SEND    = ",adminsend"
 _CMD_STR_ADMIN_SELF    = ",adminself"
 _CMD_STR_ADMIN_BALANCE = ",adminbalance"
+_CMD_STR_ADMIN_SET     = ",adminset"
 # dbg
 _CMD_STR_DUMP          = ",dump"
 _CMD_STR_DBG_CMD       = ",dbg"
 
+# jackpot
+JACKPOT_PROBABILITY = 100000
+JACKPOT_HIT_NUMBER = 77777
+JACKPOT_WEIGHT = Decimal(1)
+JACKPOT_LOTTERY_MIN = 100
+
+# rain
+RAIN_EXPIRATION = 259200
 
 logging.config.fileConfig('walletlogging.conf')
 logger = logging.getLogger()
@@ -111,24 +121,28 @@ async def on_message_inner(client, message):
     elif (_CMD_STR_HELP == params[0]):
         await _cmd_help(client, message, params)
     elif (message.channel.id == myserver.CH_ID_WALLET) or (message.channel.id == myserver.CH_ID_WALLET_STAFF):
-        # 登録
-        await _cmd_register(client, message, params)
-        # WALLET
-        await _cmd_balance(client, message, params)
-        await _cmd_withdraw(client, message, params)
-        await _cmd_info(client, message, params)
-        await _cmd_deposit(client, message, params)
+        if (_CMD_STR_REGISTER == params[0]):
+            await _cmd_register(client, message, params)
+        elif (_CMD_STR_BALANCE == params[0]):
+            await _cmd_balance(client, message, params)
+        elif (_CMD_STR_WITHDRAW == params[0]):
+            await _cmd_withdraw(client, message, params)
+        elif (_CMD_STR_INFO == params[0]):
+            await _cmd_info(client, message, params)
+        elif (_CMD_STR_DEPOSIT == params[0]):
+            await _cmd_deposit(client, message, params)
     elif message.channel.id == myserver.CH_ID_ADMIN:
-        # ADMIN
         await _cmd_dump(client, message, params)
         await _cmd_dbg_cmd(client, message, params)
         await _cmd_admin_send(client, message, params)
         await _cmd_admin_self(client, message, params)
         await _cmd_admin_balance(client, message, params)
-        # other
-        await _cmd_balance(client, message, params)
         await _cmd_version(client, message, params)
     return
+
+
+async def on_all_message_inner(client, message):
+    await _update_comment_date(client, message)
 
 # ----------------------------------------
 # コマンド
@@ -189,7 +203,7 @@ async def _cmd_register(client, message, params):
         # コミット/アドレス上書き(registerにおいては上書きはない)
         update = dbaccessor.insert_user(cursor, userid, user_name, address, balance, pending)
         connection.commit()
-        if dbaccessor.is_exists_record(cursor, userid, user_name, address, balance, pending):
+        if dbaccessor.get_user_row(cursor, userid) is not None:
             await client.send_message(message.channel, "{0}！できたわよ！".format(user_mention))
         else:
             # NG
@@ -203,9 +217,9 @@ async def _cmd_dump(client, message, params):
         return
 
     dbg_print("{0} {1}:{2}".format(_CMD_STR_DUMP, message.author, message.content))
-    user = str(message.author)
+    userid = str(message.author.id)
     # 特殊なユーザでない場合、反応しない
-    if not _is_admin_user(user):
+    if not _is_admin_user(userid):
         return
     with closing(sqlite3.connect(DBNAME)) as connection:
         cursor = connection.cursor()
@@ -391,7 +405,7 @@ async def _cmd_tip(client, message, params):
             await client.send_message(message.channel, "{0}！あなたなんて知らないわ！".format(user_mention))
             return
         if src_balance < amount: # 残高がamountより下だったらエラー
-            await client.send_message(message.channel, "{0}！XSELが足りないわよ！balance:{1:.8f} XSEL / amount:{2:.8f} XSEL".format(user_mention, src_balance, amount))
+            await client.send_message(message.channel, "{0}！XSELが足りないわよ！".format(user_mention))
             return
 
         # 残高からamount分引いて更新
@@ -453,7 +467,7 @@ async def _cmd_rain(client, message, params):
         return
     # amount制限
     if amount < _round_down8(RAIN_AMOUNT_MIN):
-        await client.send_message(message.channel, "{0}！rainは {1:.8f} XSEL以上にしなさい！".format(user_mention, _round_down8(RAIN_AMOUNT_MIN)))
+        await client.send_message(message.channel, "{0}！rainは {1} XSEL以上にしなさい！".format(user_mention, RAIN_AMOUNT_MIN))
         return
     # まず自分のアドレス
     src_balance = _round_down8("0.0")
@@ -467,40 +481,23 @@ async def _cmd_rain(client, message, params):
             return
 
     if src_balance < amount: # 残高がamountより下だったらエラー
-        await client.send_message(message.channel, "{0}！XSELが足りないようね！balance:{1:.8f} XSEL / amount:{2:.8f} XSEL".format(user_mention, src_balance, amount))
+        await client.send_message(message.channel, "{0}！XSELが足りないようね！".format(user_mention))
         return
-    # ----------------------------
-    # onlineユーザを取得
-    # ----------------------------
-    online_usersid = []
-    members = client.get_all_members()
-    for member in members:
-        # オンライン & botではない & 自分ではない でフィルタ
-        # if (discord.Status.online == member.status ) and (False == member.bot) and (src_userid != str(member.id)):
-        # オフライン、インビジブル以外はOKとする。
-        if (discord.Status.offline != member.status and discord.Status.invisible != member.status ) and (False == member.bot) and (src_userid != str(member.id)):
-            online_usersid.append(str(member.id))
 
-    if len(online_usersid) <= 0:
-        await client.send_message(message.channel, "{0}！誰もいないわね！".format(user_mention))
-        return
-    # ------------------------
-    # checkRainAmount
-    # ------------------------
-    # online_usersidからdbのリストを取得
-    receiver_user_ids=[]
+    # 対象者取得.
     with closing(sqlite3.connect(DBNAME)) as connection:
         cursor = connection.cursor()
-        for dst_userid in online_usersid:
-            row = dbaccessor.get_user_row(cursor, dst_userid)
-            if row is not None:
-                receiver_user_ids.append(dst_userid)
+        receiver_user_ids = dbaccessor.get_rain_users(
+            cursor, src_userid, time.time() - RAIN_EXPIRATION)
 
+    print("receivers = " + str(receiver_user_ids))
     # 対象ユーザが０であるか？
     receiver_user_count = len(receiver_user_ids)
     if receiver_user_count <= 0:
         await client.send_message(message.channel, "{0}！誰もいないわね！".format(user_mention))
         return
+
+    is_admin = _is_admin_user(src_userid)
 
     # ------------------------
     # RainAmount計算
@@ -522,6 +519,8 @@ async def _cmd_rain(client, message, params):
         cursor = connection.cursor()
         # ---------------------------------------
         # 残高からRainAmount分引いて更新
+        row    = dbaccessor.get_user_row(cursor, src_userid)
+        src_balance = _round_down8(str(row[walletdb.WalletNum.BALANCE.value]))
         src_after_balance = src_balance - total_amount
         if not dbaccessor.update_balance(cursor, src_userid, src_after_balance):
             await client.send_message(message.channel, "{0}！失敗したわ！".format(user_mention))
@@ -529,12 +528,11 @@ async def _cmd_rain(client, message, params):
         # まだ閉じない
         # ---------------------------------------
         for dst_userid in receiver_user_ids:
+            dst_userid = dst_userid[0]
             dst_balance = _round_down8("0.0")
-            dst_username = ''
             row = dbaccessor.get_user_row(cursor, dst_userid)
             if row is not None:
                 dst_balance = _round_down8(str(row[walletdb.WalletNum.BALANCE.value]))
-                dst_username = row[walletdb.WalletNum.USER.value]
             else:
                 # 確実に存在するはずなのでここに来たらDBが壊れている。
                 await client.send_message(message.channel, "{0}！なにかがおかしいわ！".format(user_mention))
@@ -551,18 +549,60 @@ async def _cmd_rain(client, message, params):
                 await client.send_message(message.channel, "{0}！失敗したわね！！".format(user_mention))
                 return
             sent_count += 1
+
+        if not is_admin:
+            dbaccessor.add_jackpot(cursor, int(total_sent * JACKPOT_WEIGHT))
+        jackpot = dbaccessor.get_jackpot(cursor)
         connection.commit()
 
-    logger.info("rain from id={0} name={1} before={2} rain={3} after={4}".format(src_userid, user, src_balance, amount, src_after_balance))
+    lottery = not is_admin and amount >= JACKPOT_LOTTERY_MIN
 
+    if lottery:
+        hit, result_number = _lottery_jackpot(src_userid, jackpot)
+
+    logger.info("rain from id={0} name={1} before={2} rain={3} after={4}".format(src_userid, user, src_balance, amount, src_after_balance))
     ################################
     ra_sent  = "**Receiver count**\r\n{0}\r\n".format(sent_count)
-    ra_total = "**Rain Amount**\r\n{0:.8f} XSEL\r\n".format(total_sent)
-    ra_am    = "**Amount / Receiver**\r\n{0:.8f} XSEL\r\n".format(send_amount)
-    disp_msg = ra_sent +ra_total +ra_am
+    ra_total = "**Rain amount**\r\n{0:.8f} XSEL\r\n".format(total_sent)
+    ra_am    = "**Per person**\r\n{0:.8f} XSEL\r\n".format(send_amount)
+    if lottery:
+        ra_jackpot = "**Jackpot**\r\n{0} XSEL\r\n".format(str(jackpot))
+        ra_lottery = "**Lottery**\r\n{0}\r\n".format(str(result_number))
+    else:
+        ra_jackpot = ""
+        ra_lottery = ""
+
+    disp_msg = ra_sent + ra_total + ra_am + ra_jackpot + ra_lottery
     await _disp_rep_msg( client, message, user, 'Rain', disp_msg )
     ################################
+
+    if hit:
+        jackpot_message = "{0}！？！？！？！？！！？！？！◆！＠！？\r\n".format(user_mention)
+        jackpot_message += "き、きせきが、奇跡が起きたようね！！！！\r\n"
+        jackpot_message += "すぐに残高を確認するのよ！！！\r\n"
+        await client.send_message(message.channel, jackpot_message)
+
     return
+
+
+def _lottery_jackpot(userid, jackpot):
+    result = random.randint(1, JACKPOT_PROBABILITY)
+    print("jackpot= " + str(jackpot) + " result=" + str(result))
+
+    hit = False
+    if result == JACKPOT_HIT_NUMBER:
+        with closing(sqlite3.connect(DBNAME)) as connection, dblock:
+            cursor = connection.cursor()
+            userrow = dbaccessor.get_user_row(cursor, userid)
+            balance = _round_down8(
+                str(userrow[walletdb.WalletNum.BALANCE.value]))
+            total = balance + Decimal(jackpot)
+            dbaccessor.update_balance(cursor, userid, total)
+            dbaccessor.update_jackpot(cursor, 0)
+            connection.commit()
+            hit = True
+
+    return hit, result
 
 async def _cmd_withdraw(client, message, params):
     # 「addr」に対して、「amount」XSELを送金します。
@@ -659,6 +699,13 @@ async def _cmd_withdraw(client, message, params):
     ################################
     return
 
+async def _update_comment_date(client, message):
+    userid       = str(message.author.id)
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        cursor = connection.cursor()
+        dbaccessor.update_lastcomment(cursor, userid)
+        connection.commit()
+
 
 ##########################################
 # admin用
@@ -678,7 +725,7 @@ async def _cmd_admin_send(client, message, params):
     src_userid   = str(message.author.id)
     user_mention = str(message.author.mention)
 
-    if not _is_admin_user(src_user):
+    if not _is_admin_user(src_userid):
         return
     dbg_print("{0} {1}:{2}".format(_CMD_STR_ADMIN_SEND, message.author, message.content))
 
@@ -734,14 +781,11 @@ async def _cmd_admin_self(client, message, params):
     if not params[0] == _CMD_STR_ADMIN_SELF:
         return
 
-    # Decimalの計算:float禁止
-    getcontext().traps[FloatOperation] = True
-
     src_username = str(message.author)
     src_userid   = str(message.author.id)
     user_mention = str(message.author.mention)
 
-    if not _is_admin_user(src_username):
+    if not _is_admin_user(src_userid):
         return
 
     dbg_print("{0} {1}:{2}".format(_CMD_STR_ADMIN_SELF, message.author, message.content))
@@ -797,7 +841,7 @@ async def _cmd_admin_balance(client, message, params):
     src_userid   = str(message.author.id)
     user_mention = str(message.author.mention)
 
-    if not _is_admin_user(src_user):
+    if not _is_admin_user(src_userid):
         return
 
     dbg_print("{0} {1}:{2}".format(_CMD_STR_ADMIN_SEND, message.author, message.content))
@@ -828,6 +872,22 @@ async def _cmd_admin_balance(client, message, params):
     await _disp_rep_msg( client, message,'discord wallet','結果を表示します。',disp_msg )
     ################################
     return
+
+async def _cmd_admin_set(client, message, params):
+    if not params[0] == _CMD_STR_ADMIN_SET:
+        return
+
+    userid = str(message.author.id)
+    # if not _is_admin_user(userid):
+    #     return
+
+    if (len(params) != 2):
+        await client.send_message(message.channel, "コマンドが間違えています.")
+        return
+
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        dbaccessor.set_admin(connection.cursor(), params[1])
+        connection.commit()
 
 async def _cmd_version(client, message, params):
     if not params[0] == _CMD_STR_VERSION:
@@ -925,11 +985,9 @@ def _get_user2member(client, username):
     return found_member
 
 # admin user check
-def _is_admin_user(user):
-    admin_member = list(filter(lambda x: (x == user) , cmd_admin_lst))
-    if (len(admin_member) > 0):
-        return True
-    return False
+def _is_admin_user(userid):
+    with closing(sqlite3.connect(DBNAME)) as connection:
+        return dbaccessor.is_admin(connection.cursor(), userid)
 
 ##########################################
 # Utility:Decimal

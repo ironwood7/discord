@@ -50,6 +50,7 @@ async def on_message(message):
         print("channel name={0} id={1}".format(message.channel, message.channel.id))
         if message.channel.type == discord.ChannelType.private :
             await private.on_message_inner(client, message)
+            return
         else :
             # Provisional imp >>
             # none private message
@@ -62,7 +63,9 @@ async def on_message(message):
             else:
                 await wallet.on_message_inner(client, message)
                 pass
-        return
+
+    if not message.channel.type == discord.ChannelType.private:
+        await wallet.on_all_message_inner(client, message)
 
 def daemonize():
     pid = os.fork()
