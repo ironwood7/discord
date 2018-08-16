@@ -13,6 +13,7 @@ from contextlib import closing
 import time
 import threading
 import random
+from time import sleep
 import myserver
 
 # getcontext.precは、デフォルト28のまま
@@ -611,10 +612,21 @@ async def _cmd_rain(client, message, params):
     ################################
 
     if hit:
-        jackpot_message = "{0}！？！？！？！？！！？！？！◆！＠！？\r\n".format(user_mention)
-        jackpot_message += "き、きせきが、奇跡が起きたようね！！！！\r\n"
-        jackpot_message += "すぐに残高を確認するのよ！！！\r\n"
+        jackpot_message = "{0}**\r\nにゃ！？！？！？！？！！？！？！◆！＠！？**\r\n".format(
+            user_mention)
         await client.send_message(message.channel, jackpot_message)
+        sleep(1)
+        jackpot_message = "{0}\r\n**き、きせきが、奇跡が起きたにゃ！！！！**\r\n".format(
+            user_mention)
+        jackpot_message += "**すぐに残高を確認するにゃ！！！**\r\n"
+        await client.send_message(message.channel, jackpot_message)
+        sleep(1)
+        jackpot_message = "@everyone **Jackpotが出たに・・わよ！！いますぐ祝いなさい！！！**\r\n"
+        await client.send_message(message.channel, jackpot_message)
+        sleep(1)
+        jackpot_message = "{0}、**お、お、おめでとにゃん♪**\r\n".format(user_mention)
+        await client.send_message(message.channel, jackpot_message)
+        await client.send_file(message.channel, 'conguraturation.gif')
 
     return
 
