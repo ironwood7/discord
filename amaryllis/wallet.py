@@ -140,6 +140,7 @@ async def on_message_inner(client, message):
         await _cmd_admin_self(client, message, params)
         await _cmd_admin_balance(client, message, params)
         await _cmd_version(client, message, params)
+        await _cmd_admin_set(client, message, params)
     return
 
 
@@ -920,6 +921,8 @@ async def _cmd_admin_set(client, message, params):
     with closing(sqlite3.connect(DBNAME)) as connection:
         dbaccessor.set_admin(connection.cursor(), params[1])
         connection.commit()
+
+    await client.send_message(message.channel, "成功")
 
 async def _cmd_version(client, message, params):
     if not params[0] == _CMD_STR_VERSION:
