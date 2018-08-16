@@ -526,7 +526,6 @@ async def _cmd_rain(client, message, params):
         return
 
     is_admin = _is_admin_user(src_userid)
-    is_admin = False
 
     # ------------------------
     # RainAmount計算
