@@ -13,7 +13,7 @@ from contextlib import closing
 import time
 import threading
 import random
-#import myserver
+import myserver
 
 # getcontext.precは、デフォルト28のまま
 
